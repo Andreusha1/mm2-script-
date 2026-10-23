@@ -589,7 +589,6 @@ local COOLDOWN_TIME = 5
 local COOLDOWN = {}
 local farmThread = nil
 local farmAnchorConn = nil
-local MAX_INVENTORY = 50
 
 local function isFarmCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
 
@@ -602,53 +601,32 @@ local function matchesFarmTarget(coinServer)
     return true
 end
 
-local function getInventoryCount()
+local function checkInventoryFull()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
-    if not playerGui then return 0 end
+    if not playerGui then return false end
     local mainGui = playerGui:FindFirstChild("MainGUI")
-    if not mainGui then return 0 end
+    if not mainGui then return false end
     local gameGui = mainGui:FindFirstChild("Game")
-    if not gameGui then return 0 end
-    local totalCount = 0
-    local coinBags = gameGui:FindFirstChild("CoinBags")
-    if coinBags then
-        local container = coinBags:FindFirstChild("Container")
-        if container then
-            for _, child in ipairs(container:GetChildren()) do
-                if child:IsA("GuiObject") and child.Visible then
-                    totalCount += 1
-                end
-            end
+    if not gameGui then return false end
+
+    local coins = gameGui:FindFirstChild("Coins")
+    if coins then
+        local fullBag = coins:FindFirstChild("FullBagIcon", true)
+        if fullBag and fullBag:IsA("GuiObject") and fullBag.Visible then
+            return true
         end
     end
+
     local candy = gameGui:FindFirstChild("Candy")
     if candy then
-        local currencyFrame = candy:FindFirstChild("CurrencyFrame")
-        if currencyFrame then
-            local icon = currencyFrame:FindFirstChild("Icon")
-            if icon then
-                local coins = icon:FindFirstChild("Coins")
-                if coins and coins:IsA("TextLabel") then
-                    local num = tonumber(coins.Text:match("%d+"))
-                    if num then totalCount += num end
-                end
-            end
+        local fullBag = candy:FindFirstChild("FullBagIcon", true)
+        if fullBag and fullBag:IsA("GuiObject") and fullBag.Visible then
+            return true
         end
     end
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if leaderstats then
-        local coinsStat = leaderstats:FindFirstChild("Coins") or leaderstats:FindFirstChild("Candy")
-        if coinsStat then
-            local num = tonumber(coinsStat.Value)
-            if num then totalCount = math.max(totalCount, num) end
-        end
-    end
-    return totalCount
-end
 
-local function checkInventoryFull()
-    return getInventoryCount() >= MAX_INVENTORY
+    return false
 end
 
 local function executeAfterAction()
