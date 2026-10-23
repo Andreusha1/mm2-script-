@@ -7,7 +7,7 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
 
-local AUTOMATION_SCRIPT_URL = "https://raw.githubusercontent.com/Andreusha1/mm2-script-/refs/heads/main/script"
+local AUTOMATION_SCRIPT_URL = "https://raw.githubusercontent.com/Andreusha1/mm2-script-/main/script"
 local TOGGLE_STATE_FILE = "onrusha_autofarm_state.json"
 
 local function getEnvironments()
