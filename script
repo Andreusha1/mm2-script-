@@ -589,7 +589,6 @@ local COOLDOWN_TIME = 5
 local COOLDOWN = {}
 local farmThread = nil
 local farmAnchorConn = nil
-local hasFullInventory = false
 local MAX_INVENTORY = 50
 
 local function isFarmCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
@@ -603,23 +602,53 @@ local function matchesFarmTarget(coinServer)
     return true
 end
 
-local function checkInventoryFull()
+local function getInventoryCount()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
-    if not playerGui then return false end
+    if not playerGui then return 0 end
     local mainGui = playerGui:FindFirstChild("MainGUI")
-    if not mainGui then return false end
+    if not mainGui then return 0 end
     local gameGui = mainGui:FindFirstChild("Game")
-    if not gameGui then return false end
+    if not gameGui then return 0 end
+    local totalCount = 0
     local coinBags = gameGui:FindFirstChild("CoinBags")
-    if not coinBags then return false end
-    local container = coinBags:FindFirstChild("Container")
-    if not container then return false end
-    local activeChildren = 0
-    for _, child in ipairs(container:GetChildren()) do
-        if child:IsA("GuiObject") and child.Visible then activeChildren += 1 end
+    if coinBags then
+        local container = coinBags:FindFirstChild("Container")
+        if container then
+            for _, child in ipairs(container:GetChildren()) do
+                if child:IsA("GuiObject") and child.Visible then
+                    totalCount += 1
+                end
+            end
+        end
     end
-    return activeChildren >= MAX_INVENTORY
+    local candy = gameGui:FindFirstChild("Candy")
+    if candy then
+        local currencyFrame = candy:FindFirstChild("CurrencyFrame")
+        if currencyFrame then
+            local icon = currencyFrame:FindFirstChild("Icon")
+            if icon then
+                local coins = icon:FindFirstChild("Coins")
+                if coins and coins:IsA("TextLabel") then
+                    local num = tonumber(coins.Text:match("%d+"))
+                    if num then totalCount += num end
+                end
+            end
+        end
+    end
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local coinsStat = leaderstats:FindFirstChild("Coins") or leaderstats:FindFirstChild("Candy")
+        if coinsStat then
+            local num = tonumber(coinsStat.Value)
+            if num then totalCount = math.max(totalCount, num) end
+        end
+    end
+    return totalCount
+end
+
+local function checkInventoryFull()
+    return getInventoryCount() >= MAX_INVENTORY
 end
 
 local function executeAfterAction()
@@ -725,11 +754,13 @@ local function startFarmLoop()
     farmThread = task.spawn(function()
         local target = nil
         while wig.AutoFarm:Get() do
-            if checkInventoryFull() and not hasFullInventory then
-                hasFullInventory = true
+            if checkInventoryFull() then
                 executeAfterAction()
                 if not wig.AutoFarm:Get() then break end
+                task.wait(1)
+                continue
             end
+
             local character = player.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -778,7 +809,6 @@ end
 
 wig.AutoFarm:OnChanged(function(value)
     if value then
-        hasFullInventory = false
         anchorCharacter()
         if farmAnchorConn then farmAnchorConn:Disconnect() end
         farmAnchorConn = game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
