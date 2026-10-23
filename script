@@ -12,6 +12,12 @@ if getgenv().OnrushaLoaded then
     end
 end
 
+for key, _ in pairs(getgenv()) do
+    if type(key) == "string" and (key:lower():find("onrusha") or key:lower():find("library") or key:lower():find("ui")) then
+        pcall(function() getgenv()[key] = nil end)
+    end
+end
+
 getgenv().OnrushaLoaded = true
 
 local LIBRARY_URL = "https://raw.githubusercontent.com/Andreusha1/OnrushaHub/refs/heads/main/script"
