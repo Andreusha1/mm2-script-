@@ -1,3 +1,10 @@
+if getgenv().OnrushaLoaded then
+    local oldGui = game:GetService("CoreGui"):FindFirstChild("Onrusha")
+    if oldGui then oldGui:Destroy() end
+    return 
+end
+getgenv().OnrushaLoaded = true
+
 local LIBRARY_URL = "https://raw.githubusercontent.com/Andreusha1/OnrushaHub/refs/heads/main/script"
 local VALIDATE_URL = "https://web-production-90f6b.up.railway.app/validate"
 local DISCORD_URL = "https://discord.gg/NWyfNUzTF"
@@ -59,27 +66,14 @@ local function saveToggleState()
 end
 
 local function queueReloadOnTeleport()
-    if type(AUTOMATION_SCRIPT_URL) ~= "string"
-        or AUTOMATION_SCRIPT_URL == ""
-        or AUTOMATION_SCRIPT_URL:find("СЮДА_ВСТАВЬ", 1, true) then
-        warn("[Onrusha] Auto Reconnect: set AUTOMATION_SCRIPT_URL to this script's raw URL first")
-        return false
-    end
-
+    if type(AUTOMATION_SCRIPT_URL) ~= "string" or AUTOMATION_SCRIPT_URL == "" then return false end
     local queue
     for _, env in ipairs(getEnvironments()) do
         queue = env.queue_on_teleport or env.queueonteleport or env.queue_on_tp
-        if type(queue) ~= "function" and type(env.syn) == "table" then
-            queue = env.syn.queue_on_teleport
-        end
+        if type(queue) ~= "function" and type(env.syn) == "table" then queue = env.syn.queue_on_teleport end
         if type(queue) == "function" then break end
     end
-
-    if type(queue) ~= "function" then
-        warn("[Onrusha] Auto Reconnect: queue_on_teleport API is unavailable")
-        return false
-    end
-
+    if type(queue) ~= "function" then return false end
     saveToggleState()
     local queuedCode = string.format([[
 local HttpService = game:GetService("HttpService")
@@ -104,13 +98,10 @@ if ok and type(src) == "string" then
 end
 ]], TOGGLE_STATE_FILE, AUTOMATION_SCRIPT_URL)
     local ok, err = pcall(queue, queuedCode)
-    if not ok then warn("[Onrusha] Auto Reconnect queue failed:", err) end
     return ok
 end
 
-local sourceOk, source = pcall(function()
-    return game:HttpGet(LIBRARY_URL)
-end)
+local sourceOk, source = pcall(function() return game:HttpGet(LIBRARY_URL) end)
 assert(sourceOk and type(source) == "string" and #source > 1000, "[Onrusha] Не удалось скачать библиотеку: " .. tostring(source))
 
 local chunk, compileError = loadstring(source)
@@ -178,9 +169,7 @@ local function isBanErrorMessage(message)
         "account has been moderated", "moderation action", "account moderation", "experience ban"
     }
     for _, marker in ipairs(markers) do
-        if text:find(marker, 1, true) then
-            return true
-        end
+        if text:find(marker, 1, true) then return true end
     end
     return false
 end
@@ -190,24 +179,13 @@ local function stopReconnectForBan(message)
     reconnectBusy = false
     SavedToggleState["Auto Reconnect"] = false
     saveToggleState()
-    warn("[Onrusha] Auto Reconnect disabled because the error looks like a ban/moderation message:", tostring(message))
 end
 
 local function tryReconnect(errorMessage)
-    if not AutoReconnect or reconnectBusy then
-        return
-    end
-
-    if isBanErrorMessage(errorMessage) then
-        stopReconnectForBan(errorMessage)
-        return
-    end
-
+    if not AutoReconnect or reconnectBusy then return end
+    if isBanErrorMessage(errorMessage) then stopReconnectForBan(errorMessage); return end
     local now = os.clock()
-    if now - lastReconnectAttempt < 4 then
-        return
-    end
-
+    if now - lastReconnectAttempt < 4 then return end
     lastReconnectAttempt = now
     reconnectBusy = true
     saveToggleState()
@@ -215,65 +193,32 @@ local function tryReconnect(errorMessage)
 
     task.spawn(function()
         task.wait(1)
-        if not AutoReconnect then
-            reconnectBusy = false
-            return
-        end
-
-        local ok, err = pcall(function()
-            TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
-        end)
-
+        if not AutoReconnect then reconnectBusy = false; return end
+        local ok, err = pcall(function() TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer) end)
         if not ok then
-            warn("[Onrusha] Reconnect attempt failed:", tostring(err))
             reconnectBusy = false
-            task.delay(4, function()
-                if AutoReconnect then
-                    tryReconnect("network retry")
-                end
-            end)
+            task.delay(4, function() if AutoReconnect then tryReconnect("network retry") end end)
             return
         end
-
-        task.delay(15, function()
-            if AutoReconnect and reconnectBusy then
-                reconnectBusy = false
-                tryReconnect("teleport timeout retry")
-            end
-        end)
+        task.delay(15, function() if AutoReconnect and reconnectBusy then reconnectBusy = false; tryReconnect("teleport timeout retry") end end)
     end)
 end
 
-local errorSignalOK, errorMessageSignal = pcall(function()
-    return GuiService.ErrorMessageChanged
-end)
+local errorSignalOK, errorMessageSignal = pcall(function() return GuiService.ErrorMessageChanged end)
 if errorSignalOK and errorMessageSignal then
-    local connectOK, connectError = pcall(function()
+    pcall(function()
         errorMessageSignal:Connect(function(errorMessage)
-            if not AutoReconnect or type(errorMessage) ~= "string" or errorMessage == "" then
-                return
-            end
+            if not AutoReconnect or type(errorMessage) ~= "string" or errorMessage == "" then return end
             tryReconnect(errorMessage)
         end)
     end)
 end
 
 TeleportService.TeleportInitFailed:Connect(function(failedPlayer, teleportResult, errorMessage)
-    if failedPlayer ~= game:GetService("Players").LocalPlayer or not AutoReconnect then
-        return
-    end
-
-    if isBanErrorMessage(errorMessage) then
-        stopReconnectForBan(errorMessage)
-        return
-    end
-
+    if failedPlayer ~= game:GetService("Players").LocalPlayer or not AutoReconnect then return end
+    if isBanErrorMessage(errorMessage) then stopReconnectForBan(errorMessage); return end
     reconnectBusy = false
-    task.delay(4.5, function()
-        if AutoReconnect then
-            tryReconnect(errorMessage or tostring(teleportResult))
-        end
-    end)
+    task.delay(4.5, function() if AutoReconnect then tryReconnect(errorMessage or tostring(teleportResult)) end end)
 end)
 
 wig.AutoReconnect = sections.Reconnect:ToggleCreate({
@@ -286,25 +231,12 @@ wig.AutoReconnect = sections.Reconnect:ToggleCreate({
 wig.AutoReconnect:OnChanged(function(value)
     AutoReconnect = value
     reconnectBusy = false
-    if autoReconnectConnection then
-        autoReconnectConnection:Disconnect()
-        autoReconnectConnection = nil
-    end
-    if not value then
-        SavedToggleState["Auto Reconnect"] = false
-        saveToggleState()
-        return
-    end
-
+    if autoReconnectConnection then autoReconnectConnection:Disconnect(); autoReconnectConnection = nil end
+    if not value then SavedToggleState["Auto Reconnect"] = false; saveToggleState(); return end
     saveToggleState()
-    if not queueReloadOnTeleport() then
-        warn("[Onrusha] Auto Reconnect is enabled, but auto-reload after teleport is not configured.")
-    end
-
+    if not queueReloadOnTeleport() then end
     autoReconnectConnection = game:GetService("Players").LocalPlayer.OnTeleport:Connect(function(state)
-        if not AutoReconnect or state ~= Enum.TeleportState.Started then
-            return
-        end
+        if not AutoReconnect or state ~= Enum.TeleportState.Started then return end
         saveToggleState()
         queueReloadOnTeleport()
     end)
@@ -387,10 +319,7 @@ end
 local function applyESP(player)
     if player == game:GetService("Players").LocalPlayer then return end
     if not wig.ESP:Get() then return end
-    if not shouldShowPlayer(player) then 
-        removeESP(player)
-        return 
-    end
+    if not shouldShowPlayer(player) then removeESP(player); return end
 
     local character = player.Character
     if not character then return end
@@ -453,15 +382,11 @@ local espConnections = {}
 local espCheckThread = nil
 
 local function watchESPPlayer(player)
-    if player.Character then
-        task.spawn(applyESP, player)
-    end
-
+    if player.Character then task.spawn(applyESP, player) end
     table.insert(espConnections, player.CharacterAdded:Connect(function()
         task.wait(0.5)
         if wig.ESP:Get() then applyESP(player) end
     end))
-
     local function hookBackpack(backpack)
         table.insert(espConnections, backpack.ChildAdded:Connect(function()
             if wig.ESP:Get() then applyESP(player) end
@@ -470,10 +395,7 @@ local function watchESPPlayer(player)
             if wig.ESP:Get() then applyESP(player) end
         end))
     end
-
-    if player:FindFirstChild("Backpack") then
-        hookBackpack(player.Backpack)
-    end
+    if player:FindFirstChild("Backpack") then hookBackpack(player.Backpack) end
     table.insert(espConnections, player.ChildAdded:Connect(function(child)
         if child.Name == "Backpack" then hookBackpack(child) end
     end))
@@ -481,11 +403,8 @@ end
 
 wig.ESP:OnChanged(function(value)
     if value then
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            watchESPPlayer(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do watchESPPlayer(player) end
         table.insert(espConnections, game:GetService("Players").PlayerAdded:Connect(watchESPPlayer))
-
         if espCheckThread then task.cancel(espCheckThread) end
         espCheckThread = task.spawn(function()
             while wig.ESP:Get() do
@@ -494,17 +413,10 @@ wig.ESP:OnChanged(function(value)
             end
         end)
     else
-        for _, conn in ipairs(espConnections) do 
-            if conn then conn:Disconnect() end 
-        end
+        for _, conn in ipairs(espConnections) do if conn then conn:Disconnect() end end
         table.clear(espConnections)
-        if espCheckThread then 
-            task.cancel(espCheckThread) 
-            espCheckThread = nil 
-        end
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do 
-            removeESP(player) 
-        end
+        if espCheckThread then task.cancel(espCheckThread); espCheckThread = nil end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do removeESP(player) end
     end
 end)
 
@@ -539,13 +451,8 @@ wig.CandyColor = coinSettings:ColorPickerCreate({
 local coinConnections = {}
 local highlightedItems = {}
 
-local function getCoinVisual(coinServer)
-    return coinServer and coinServer:FindFirstChild("CoinVisual")
-end
-
-local function isCandy(coinServer)
-    return coinServer:GetAttribute("CoinID") == "Candy"
-end
+local function getCoinVisual(coinServer) return coinServer and coinServer:FindFirstChild("CoinVisual") end
+local function isCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
 
 local function shouldShowItem(coinServer)
     local filter = wig.CoinFilter:Get()
@@ -574,10 +481,8 @@ local function applyItemHighlight(coinServer)
     removeItemHighlight(coinServer)
     if not wig.CoinESP:Get() then return end
     if not shouldShowItem(coinServer) then return end
-
     local visual = getCoinVisual(coinServer)
     if not visual or not visual:IsA("BasePart") then return end
-
     local hl = Instance.new("Highlight")
     hl.Name = "ItemESP_Highlight"
     hl.FillColor = getItemColor(coinServer)
@@ -590,60 +495,38 @@ local function applyItemHighlight(coinServer)
 end
 
 local function refreshAllItemESP()
-    for coinServer in pairs(highlightedItems) do
-        removeItemHighlight(coinServer)
-    end
+    for coinServer in pairs(highlightedItems) do removeItemHighlight(coinServer) end
     if not wig.CoinESP:Get() then return end
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "Coin_Server" and obj:IsA("Model") then
-            task.spawn(applyItemHighlight, obj)
-        end
+        if obj.Name == "Coin_Server" and obj:IsA("Model") then task.spawn(applyItemHighlight, obj) end
     end
 end
 
 local function watchCoinServer()
     table.insert(coinConnections, workspace.DescendantAdded:Connect(function(child)
         if not wig.CoinESP:Get() then return end
-        if child.Name == "Coin_Server" and child:IsA("Model") then
-            task.spawn(applyItemHighlight, child)
-        elseif child.Name == "CoinVisual" and child.Parent and child.Parent.Name == "Coin_Server" then
-            task.spawn(applyItemHighlight, child.Parent)
-        end
+        if child.Name == "Coin_Server" and child:IsA("Model") then task.spawn(applyItemHighlight, child)
+        elseif child.Name == "CoinVisual" and child.Parent and child.Parent.Name == "Coin_Server" then task.spawn(applyItemHighlight, child.Parent) end
     end))
     table.insert(coinConnections, workspace.DescendantRemoving:Connect(function(child)
-        if child.Name == "Coin_Server" then
-            removeItemHighlight(child)
-        elseif child.Name == "CoinVisual" and child.Parent and child.Parent.Name == "Coin_Server" then
-            removeItemHighlight(child.Parent)
-        end
+        if child.Name == "Coin_Server" then removeItemHighlight(child)
+        elseif child.Name == "CoinVisual" and child.Parent and child.Parent.Name == "Coin_Server" then removeItemHighlight(child.Parent) end
     end))
 end
 
 wig.CoinESP:OnChanged(function(value)
-    if value then
-        watchCoinServer()
-        refreshAllItemESP()
+    if value then watchCoinServer(); refreshAllItemESP()
     else
-        for _, conn in ipairs(coinConnections) do
-            if conn then conn:Disconnect() end
-        end
+        for _, conn in ipairs(coinConnections) do if conn then conn:Disconnect() end end
         table.clear(coinConnections)
-        for coinServer in pairs(highlightedItems) do
-            removeItemHighlight(coinServer)
-        end
+        for coinServer in pairs(highlightedItems) do removeItemHighlight(coinServer) end
         table.clear(highlightedItems)
     end
 end)
 
-wig.CoinFilter:OnChanged(function()
-    if wig.CoinESP:Get() then refreshAllItemESP() end
-end)
-wig.CoinColor:OnChanged(function()
-    if wig.CoinESP:Get() then refreshAllItemESP() end
-end)
-wig.CandyColor:OnChanged(function()
-    if wig.CoinESP:Get() then refreshAllItemESP() end
-end)
+wig.CoinFilter:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP() end end)
+wig.CoinColor:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP() end end)
+wig.CandyColor:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP() end end)
 
 -- ========== AUTO FARM ==========
 wig.AutoFarm = sections.Farm:ToggleCreate({
@@ -699,9 +582,7 @@ local farmThread = nil
 local farmAnchorConn = nil
 local hasFullInventory = false
 
-local function isFarmCandy(coinServer)
-    return coinServer:GetAttribute("CoinID") == "Candy"
-end
+local function isFarmCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
 
 local function matchesFarmTarget(coinServer)
     local target = wig.FarmTarget:Get()
@@ -716,52 +597,35 @@ local function checkInventoryFull()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then return false end
-    
     local mainGui = playerGui:FindFirstChild("MainGUI")
     if not mainGui then return false end
-    
     local gameGui = mainGui:FindFirstChild("Game")
     if not gameGui then return false end
-    
     local coinBags = gameGui:FindFirstChild("CoinBags")
     if not coinBags then return false end
-    
     local container = coinBags:FindFirstChild("Container")
     if not container then return false end
-    
-    local children = container:GetChildren()
     local activeChildren = 0
-    for _, child in ipairs(children) do
-        if child:IsA("GuiObject") and child.Visible then
-            activeChildren += 1
-        end
+    for _, child in ipairs(container:GetChildren()) do
+        if child:IsA("GuiObject") and child.Visible then activeChildren += 1 end
     end
-    
     return activeChildren > 0
 end
 
 local function executeAfterAction()
     local action = wig.FarmAfterAction:Get()
     if action == "Nothing" then return end
-
     if action == "Auto Kill All" then
         local isMurderer = false
         local player = game:GetService("Players").LocalPlayer
         local backpack = player:FindFirstChild("Backpack")
         local char = player.Character
-        if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then
-            isMurderer = true
-        end
-
-        if isMurderer then
-            wig.AutoKillInnocents:Set(true)
-        end
+        if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then isMurderer = true end
+        if isMurderer then wig.AutoKillInnocents:Set(true) end
     elseif action == "Suicide" then
         local char = game:GetService("Players").LocalPlayer.Character
         local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.Health = 0
-        end
+        if humanoid then humanoid.Health = 0 end
         task.wait(0.5)
         wig.AutoFarm:Set(false)
     end
@@ -770,27 +634,18 @@ end
 local function getCoinParts(coinServer)
     local parts = {}
     if not coinServer then return parts end
-    if coinServer:IsA("BasePart") then
-        table.insert(parts, coinServer)
-        return parts
-    end
+    if coinServer:IsA("BasePart") then table.insert(parts, coinServer); return parts end
     for _, d in ipairs(coinServer:GetDescendants()) do
-        if d:IsA("BasePart") then
-            table.insert(parts, d)
-        end
+        if d:IsA("BasePart") then table.insert(parts, d) end
     end
     return parts
 end
 
 local function hasTouchedEvent(coinServer)
     if not coinServer or not coinServer.Parent then return false end
-    if coinServer:IsA("BasePart") and coinServer:FindFirstChildOfClass("TouchTransmitter") then
-        return true
-    end
+    if coinServer:IsA("BasePart") and coinServer:FindFirstChildOfClass("TouchTransmitter") then return true end
     for _, d in ipairs(coinServer:GetDescendants()) do
-        if d:IsA("BasePart") and d:FindFirstChildOfClass("TouchTransmitter") then
-            return true
-        end
+        if d:IsA("BasePart") and d:FindFirstChildOfClass("TouchTransmitter") then return true end
     end
     return false
 end
@@ -809,28 +664,18 @@ end
 local function isOnCooldown(coinServer)
     local t = COOLDOWN[coinServer]
     if not t then return false end
-    if tick() - t >= COOLDOWN_TIME then
-        COOLDOWN[coinServer] = nil
-        return false
-    end
+    if tick() - t >= COOLDOWN_TIME then COOLDOWN[coinServer] = nil; return false end
     return true
 end
 
 local function findNearestCoin(originPos, radius)
     local best, bestDist = nil, radius
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "Coin_Server"
-            and matchesFarmTarget(obj)
-            and not isOnCooldown(obj)
-            and hasTouchedEvent(obj)
-        then
+        if obj.Name == "Coin_Server" and matchesFarmTarget(obj) and not isOnCooldown(obj) and hasTouchedEvent(obj) then
             local center = getCoinCenter(obj)
             if center then
                 local dist = (center - originPos).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    best = obj
-                end
+                if dist < bestDist then bestDist = dist; best = obj end
             end
         end
     end
@@ -850,9 +695,7 @@ local function touchCoin(character, coinServer)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     for _, part in ipairs(getCoinParts(coinServer)) do
-        if part.Parent then
-            fireTouch(hrp, part)
-        end
+        if part.Parent then fireTouch(hrp, part) end
     end
 end
 
@@ -871,51 +714,29 @@ local function startFarmLoop()
 
     farmThread = task.spawn(function()
         local target = nil
-
         while wig.AutoFarm:Get() do
             if checkInventoryFull() and not hasFullInventory then
                 hasFullInventory = true
                 executeAfterAction()
                 if not wig.AutoFarm:Get() then break end
             end
-
             local character = player.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-            if not hrp or not humanoid or humanoid.Health <= 0 then
-                target = nil
-                task.wait(0.5)
-                continue
-            end
-
-            if not hrp.Anchored then
-                hrp.Anchored = true
-            end
+            if not hrp or not humanoid or humanoid.Health <= 0 then target = nil; task.wait(0.5); continue end
+            if not hrp.Anchored then hrp.Anchored = true end
 
             local radius = wig.FarmRadius:Get()
             local center = target and target.Parent and getCoinCenter(target)
 
-            if not center
-                or (center - hrp.Position).Magnitude > radius
-                or isOnCooldown(target)
-                or not hasTouchedEvent(target)
-            then
+            if not center or (center - hrp.Position).Magnitude > radius or isOnCooldown(target) or not hasTouchedEvent(target) then
                 target = findNearestCoin(hrp.Position, radius)
-                if not target then
-                    task.wait(0.2)
-                    continue
-                end
+                if not target then task.wait(0.2); continue end
                 center = getCoinCenter(target)
-                if not center then
-                    target = nil
-                    task.wait(0.05)
-                    continue
-                end
+                if not center then target = nil; task.wait(0.05); continue end
             end
 
             local distance = (center - hrp.Position).Magnitude
-
             if distance > 2 then
                 local speed = wig.FarmSpeed:Get()
                 local dir = (center - hrp.Position).Unit
@@ -926,36 +747,19 @@ local function startFarmLoop()
                 hrp.Anchored = false
                 hrp.CFrame = CFrame.new(center + Vector3.new(0, 2, 0))
                 task.wait(0.05)
-                
                 local touchStartTime = tick()
                 local timeout = wig.FarmTimeout:Get() / 10
                 local pickedUp = false
-
                 while wig.AutoFarm:Get() do
-                    if not target or not target.Parent then
-                        pickedUp = true
-                        break
-                    end
-                    
-                    if not hasTouchedEvent(target) then
-                        pickedUp = true
-                        break
-                    end
-
+                    if not target or not target.Parent then pickedUp = true; break end
+                    if not hasTouchedEvent(target) then pickedUp = true; break end
                     touchCoin(character, target)
                     task.wait(0.1)
-
-                    if tick() - touchStartTime > timeout then
-                        break
-                    end
+                    if tick() - touchStartTime > timeout then break end
                 end
-
                 COOLDOWN[target] = tick()
                 target = nil
-                
-                if hrp and hrp.Parent then
-                    hrp.Anchored = true
-                end
+                if hrp and hrp.Parent then hrp.Anchored = true end
                 task.wait(0.1)
             end
         end
@@ -1060,20 +864,13 @@ local function shouldApplyTo(player)
     return false
 end
 
-local function getLifetime()
-    return wig.TrailLifetime:Get() / 100
-end
-
-local function getThickness()
-    return wig.TrailThickness:Get() / 100
-end
+local function getLifetime() return wig.TrailLifetime:Get() / 100 end
+local function getThickness() return wig.TrailThickness:Get() / 100 end
 
 local function removeTrail(player)
     local data = activeTrails[player]
     if not data then return end
-    for _, obj in ipairs(data) do
-        if obj and obj.Parent then obj:Destroy() end
-    end
+    for _, obj in ipairs(data) do if obj and obj.Parent then obj:Destroy() end end
     activeTrails[player] = nil
 end
 
@@ -1081,25 +878,14 @@ local function applyTrail(player)
     removeTrail(player)
     if not wig.Trails:Get() then return end
     if not shouldApplyTo(player) then return end
-
     local character = player.Character
     if not character then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
-    local a0 = Instance.new("Attachment")
-    a0.Name = "TrailA0"
-    a0.Position = Vector3.new(0, 0.5, 0)
-    a0.Parent = hrp
-
-    local a1 = Instance.new("Attachment")
-    a1.Name = "TrailA1"
-    a1.Position = Vector3.new(0, -0.5, 0)
-    a1.Parent = hrp
-
+    local a0 = Instance.new("Attachment"); a0.Name = "TrailA0"; a0.Position = Vector3.new(0, 0.5, 0); a0.Parent = hrp
+    local a1 = Instance.new("Attachment"); a1.Name = "TrailA1"; a1.Position = Vector3.new(0, -0.5, 0); a1.Parent = hrp
     local presetName = wig.TrailPreset:Get()
     local preset = PRESETS[presetName] or PRESETS.Ocean
-
     local trail = Instance.new("Trail")
     trail.Name = "CustomTrail"
     trail.Attachment0 = a0
@@ -1114,7 +900,6 @@ local function applyTrail(player)
         NumberSequenceKeypoint.new(0.5, getThickness()),
         NumberSequenceKeypoint.new(1, 0),
     })
-
     if preset.mode == "rainbow" then
         trail.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
     else
@@ -1123,22 +908,18 @@ local function applyTrail(player)
             ColorSequenceKeypoint.new(1, preset.color2),
         })
     end
-
     trail.Parent = hrp
     activeTrails[player] = { trail, a0, a1 }
 end
 
 local function refreshAllTrails()
-    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-        applyTrail(player)
-    end
+    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do applyTrail(player) end
 end
 
 local function startRainbow()
     if rainbowThread then task.cancel(rainbowThread); rainbowThread = nil end
     if not wig.Trails:Get() then return end
     if wig.TrailPreset:Get() ~= "Rainbow" then return end
-
     rainbowThread = task.spawn(function()
         local hue = 0
         while wig.Trails:Get() and wig.TrailPreset:Get() == "Rainbow" do
@@ -1146,9 +927,7 @@ local function startRainbow()
             local color = Color3.fromHSV(hue, 1, 1)
             for _, data in pairs(activeTrails) do
                 local trail = data[1]
-                if trail and trail.Parent then
-                    trail.Color = ColorSequence.new(color)
-                end
+                if trail and trail.Parent then trail.Color = ColorSequence.new(color) end
             end
             task.wait(0.05)
         end
@@ -1156,63 +935,36 @@ local function startRainbow()
 end
 
 local function watchTrailPlayer(player)
-    if player.Character then
-        task.spawn(applyTrail, player)
-    end
+    if player.Character then task.spawn(applyTrail, player) end
     table.insert(trailConnections, player.CharacterAdded:Connect(function()
         task.wait(0.5)
         if wig.Trails:Get() then applyTrail(player) end
     end))
     local function hookBackpack(backpack)
-        table.insert(trailConnections, backpack.ChildAdded:Connect(function()
-            if wig.Trails:Get() then applyTrail(player) end
-        end))
-        table.insert(trailConnections, backpack.ChildRemoved:Connect(function()
-            if wig.Trails:Get() then applyTrail(player) end
-        end))
+        table.insert(trailConnections, backpack.ChildAdded:Connect(function() if wig.Trails:Get() then applyTrail(player) end end))
+        table.insert(trailConnections, backpack.ChildRemoved:Connect(function() if wig.Trails:Get() then applyTrail(player) end end))
     end
-    if player:FindFirstChild("Backpack") then
-        hookBackpack(player.Backpack)
-    end
-    table.insert(trailConnections, player.ChildAdded:Connect(function(child)
-        if child.Name == "Backpack" then hookBackpack(child) end
-    end))
+    if player:FindFirstChild("Backpack") then hookBackpack(player.Backpack) end
+    table.insert(trailConnections, player.ChildAdded:Connect(function(child) if child.Name == "Backpack" then hookBackpack(child) end end))
 end
 
 wig.Trails:OnChanged(function(value)
     if value then
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            watchTrailPlayer(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do watchTrailPlayer(player) end
         table.insert(trailConnections, game:GetService("Players").PlayerAdded:Connect(watchTrailPlayer))
         startRainbow()
     else
-        for _, conn in ipairs(trailConnections) do
-            if conn and conn.Disconnect then conn:Disconnect() end
-        end
+        for _, conn in ipairs(trailConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
         table.clear(trailConnections)
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            removeTrail(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do removeTrail(player) end
         if rainbowThread then task.cancel(rainbowThread); rainbowThread = nil end
     end
 end)
 
-wig.TrailPreset:OnChanged(function()
-    if wig.Trails:Get() then
-        refreshAllTrails()
-        startRainbow()
-    end
-end)
-wig.TrailWho:OnChanged(function()
-    if wig.Trails:Get() then refreshAllTrails() end
-end)
-wig.TrailLifetime:OnChanged(function()
-    if wig.Trails:Get() then refreshAllTrails() end
-end)
-wig.TrailThickness:OnChanged(function()
-    if wig.Trails:Get() then refreshAllTrails() end
-end)
+wig.TrailPreset:OnChanged(function() if wig.Trails:Get() then refreshAllTrails(); startRainbow() end end)
+wig.TrailWho:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() end end)
+wig.TrailLifetime:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() end end)
+wig.TrailThickness:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() end end)
 
 -- ========== WORLD PARTICLES ==========
 wig.WorldParticles = sections.Effects:ToggleCreate({
@@ -1241,25 +993,19 @@ wig.ParticleWho = particleSettings:DropdownCreate({
 wig.ParticleSize = particleSettings:SliderCreate({
     Id = "WorldParticles.Size",
     Name = "Size (x0.01)",
-    Min = 10,
-    Max = 300,
-    Default = 20,
+    Min = 10, Max = 300, Default = 20,
 })
 
 wig.ParticleRate = particleSettings:SliderCreate({
     Id = "WorldParticles.Rate",
     Name = "Rate",
-    Min = 5,
-    Max = 150,
-    Default = 20,
+    Min = 5, Max = 150, Default = 20,
 })
 
 wig.ParticleSpeed = particleSettings:SliderCreate({
     Id = "WorldParticles.Speed",
     Name = "Speed",
-    Min = 1,
-    Max = 50,
-    Default = 5,
+    Min = 1, Max = 50, Default = 5,
 })
 
 local particleConnections = {}
@@ -1410,9 +1156,7 @@ end
 local function removeParticles(player)
     local data = activeParticles[player]
     if not data then return end
-    for _, obj in ipairs(data) do
-        if obj and obj.Parent then obj:Destroy() end
-    end
+    for _, obj in ipairs(data) do if obj and obj.Parent then obj:Destroy() end end
     activeParticles[player] = nil
 end
 
@@ -1420,18 +1164,14 @@ local function applyParticles(player)
     removeParticles(player)
     if not wig.WorldParticles:Get() then return end
     if not shouldApplyParticlesTo(player) then return end
-
     local character = player.Character
     if not character then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     local presetName = wig.ParticlePreset:Get()
     local preset = PARTICLE_PRESETS[presetName] or PARTICLE_PRESETS.Sparkles
-
     local baseSize = wig.ParticleSize:Get() / 100 * preset.SizeScale
     local speedScale = wig.ParticleSpeed:Get() / 10
-
     local emitter = Instance.new("ParticleEmitter")
     emitter.Name = "CustomParticles"
     emitter.Texture = preset.Texture
@@ -1448,73 +1188,44 @@ local function applyParticles(player)
     emitter.RotSpeed = NumberRange.new(-90, 90)
     emitter.EmissionDirection = Enum.NormalId.Top
     emitter.Size = NumberSequence.new(baseSize)
-
     emitter.Parent = hrp
     activeParticles[player] = { emitter }
 end
 
 local function refreshAllParticles()
-    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-        applyParticles(player)
-    end
+    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do applyParticles(player) end
 end
 
 local function watchParticlePlayer(player)
-    if player.Character then
-        task.spawn(applyParticles, player)
-    end
+    if player.Character then task.spawn(applyParticles, player) end
     table.insert(particleConnections, player.CharacterAdded:Connect(function()
         task.wait(0.5)
         if wig.WorldParticles:Get() then applyParticles(player) end
     end))
     local function hookBackpack(backpack)
-        table.insert(particleConnections, backpack.ChildAdded:Connect(function()
-            if wig.WorldParticles:Get() then applyParticles(player) end
-        end))
-        table.insert(particleConnections, backpack.ChildRemoved:Connect(function()
-            if wig.WorldParticles:Get() then applyParticles(player) end
-        end))
+        table.insert(particleConnections, backpack.ChildAdded:Connect(function() if wig.WorldParticles:Get() then applyParticles(player) end end))
+        table.insert(particleConnections, backpack.ChildRemoved:Connect(function() if wig.WorldParticles:Get() then applyParticles(player) end end))
     end
-    if player:FindFirstChild("Backpack") then
-        hookBackpack(player.Backpack)
-    end
-    table.insert(particleConnections, player.ChildAdded:Connect(function(child)
-        if child.Name == "Backpack" then hookBackpack(child) end
-    end))
+    if player:FindFirstChild("Backpack") then hookBackpack(player.Backpack) end
+    table.insert(particleConnections, player.ChildAdded:Connect(function(child) if child.Name == "Backpack" then hookBackpack(child) end end))
 end
 
 wig.WorldParticles:OnChanged(function(value)
     if value then
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            watchParticlePlayer(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do watchParticlePlayer(player) end
         table.insert(particleConnections, game:GetService("Players").PlayerAdded:Connect(watchParticlePlayer))
     else
-        for _, conn in ipairs(particleConnections) do
-            if conn and conn.Disconnect then conn:Disconnect() end
-        end
+        for _, conn in ipairs(particleConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
         table.clear(particleConnections)
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            removeParticles(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do removeParticles(player) end
     end
 end)
 
-wig.ParticlePreset:OnChanged(function()
-    if wig.WorldParticles:Get() then refreshAllParticles() end
-end)
-wig.ParticleWho:OnChanged(function()
-    if wig.WorldParticles:Get() then refreshAllParticles() end
-end)
-wig.ParticleSize:OnChanged(function()
-    if wig.WorldParticles:Get() then refreshAllParticles() end
-end)
-wig.ParticleRate:OnChanged(function()
-    if wig.WorldParticles:Get() then refreshAllParticles() end
-end)
-wig.ParticleSpeed:OnChanged(function()
-    if wig.WorldParticles:Get() then refreshAllParticles() end
-end)
+wig.ParticlePreset:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
+wig.ParticleWho:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
+wig.ParticleSize:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
+wig.ParticleRate:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
+wig.ParticleSpeed:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
 
 -- ========== JUMP CIRCLES ==========
 wig.JumpCircles = sections.Effects:ToggleCreate({
@@ -1538,17 +1249,13 @@ wig.JumpPreset = jumpSettings:DropdownCreate({
 wig.JumpSize = jumpSettings:SliderCreate({
     Id = "JumpCircles.Size",
     Name = "Size (x0.1)",
-    Min = 5,
-    Max = 100,
-    Default = 15,
+    Min = 5, Max = 100, Default = 15,
 })
 
 wig.JumpLifetime = jumpSettings:SliderCreate({
     Id = "JumpCircles.Lifetime",
     Name = "Lifetime (x0.01)",
-    Min = 20,
-    Max = 150,
-    Default = 60,
+    Min = 20, Max = 150, Default = 60,
 })
 
 local jumpConnections = {}
@@ -1571,21 +1278,14 @@ local function spawnJumpCircle(character)
     if not wig.JumpCircles:Get() then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     local presetName = wig.JumpPreset:Get()
     local preset = JUMP_PRESETS[presetName] or JUMP_PRESETS["Ice Ring"]
-
     local sizeMulti = wig.JumpSize:Get() / 10
     local lifetime = wig.JumpLifetime:Get() / 100
-
     local startSize = preset.StartSize * sizeMulti
     local endSize = preset.EndSize * sizeMulti
-
     local color = preset.Color
-    if preset.rainbow then
-        color = Color3.fromHSV(math.random(), 1, 1)
-    end
-
+    if preset.rainbow then color = Color3.fromHSV(math.random(), 1, 1) end
     local part = Instance.new("Part")
     part.Name = "JumpCircleFX"
     part.Shape = Enum.PartType.Block
@@ -1598,14 +1298,12 @@ local function spawnJumpCircle(character)
     part.Size = Vector3.new(startSize, 0.1, startSize)
     part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0))
     part.Parent = workspace
-
     local decal = Instance.new("Decal")
     decal.Texture = preset.Texture
     decal.Face = Enum.NormalId.Top
     decal.Color3 = color
     decal.Transparency = 0
     decal.Parent = part
-
     local tweenService = game:GetService("TweenService")
     local sizeTween = tweenService:Create(part, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = Vector3.new(endSize, 0.1, endSize),
@@ -1613,68 +1311,45 @@ local function spawnJumpCircle(character)
     local fadeTween = tweenService:Create(decal, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Transparency = 1,
     })
-
     sizeTween:Play()
     fadeTween:Play()
-
     table.insert(jumpCircles, part)
-
     task.delay(lifetime + 0.1, function()
         if part and part.Parent then part:Destroy() end
-        for i, v in ipairs(jumpCircles) do
-            if v == part then table.remove(jumpCircles, i) break end
-        end
+        for i, v in ipairs(jumpCircles) do if v == part then table.remove(jumpCircles, i) break end end
     end)
 end
 
 local function hookCharacter(character)
     local humanoid = character:WaitForChild("Humanoid", 5)
     if not humanoid then return end
-
     local wasAirborne = false
-
     table.insert(jumpConnections, humanoid.StateChanged:Connect(function(_, newState)
         if not wig.JumpCircles:Get() then return end
-
         if newState == Enum.HumanoidStateType.Jumping or newState == Enum.HumanoidStateType.Freefall then
             wasAirborne = true
         elseif newState == Enum.HumanoidStateType.Landed or newState == Enum.HumanoidStateType.Running then
-            if wasAirborne then
-                wasAirborne = false
-                spawnJumpCircle(character)
-            end
-        elseif newState == Enum.HumanoidStateType.Dead then
-            wasAirborne = false
-        end
+            if wasAirborne then wasAirborne = false; spawnJumpCircle(character) end
+        elseif newState == Enum.HumanoidStateType.Dead then wasAirborne = false end
     end))
 end
 
 local function watchJumpPlayer(player)
-    if player.Character then
-        task.spawn(hookCharacter, player.Character)
-    end
+    if player.Character then task.spawn(hookCharacter, player.Character) end
     table.insert(jumpConnections, player.CharacterAdded:Connect(function(character)
         task.wait(0.5)
-        if wig.JumpCircles:Get() then
-            hookCharacter(character)
-        end
+        if wig.JumpCircles:Get() then hookCharacter(character) end
     end))
 end
 
 wig.JumpCircles:OnChanged(function(value)
     if value then
-        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-            watchJumpPlayer(player)
-        end
+        for _, player in ipairs(game:GetService("Players"):GetPlayers()) do watchJumpPlayer(player) end
         table.insert(jumpConnections, game:GetService("Players").PlayerAdded:Connect(watchJumpPlayer))
     else
-        for _, conn in ipairs(jumpConnections) do
-            if conn and conn.Disconnect then conn:Disconnect() end
-        end
+        for _, conn in ipairs(jumpConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
         table.clear(jumpConnections)
-        for _, part in ipairs(jumpCircles) do
-            if part and part.Parent then part:Destroy() end
-        end
+        for _, part in ipairs(jumpCircles) do if part and part.Parent then part:Destroy() end end
         table.clear(jumpCircles)
     end
 end)
@@ -1705,25 +1380,19 @@ wig.FogColor = fogSettings:ColorPickerCreate({
 wig.FogDensity = fogSettings:SliderCreate({
     Id = "Fog.Density",
     Name = "Density (x0.001)",
-    Min = 1,
-    Max = 100,
-    Default = 35,
+    Min = 1, Max = 100, Default = 35,
 })
 
 wig.FogHaze = fogSettings:SliderCreate({
     Id = "Fog.Haze",
     Name = "Haze",
-    Min = 0,
-    Max = 20,
-    Default = 8,
+    Min = 0, Max = 20, Default = 8,
 })
 
 wig.FogBlur = fogSettings:SliderCreate({
     Id = "Fog.Blur",
     Name = "Blur (x0.1)",
-    Min = 0,
-    Max = 30,
-    Default = 3,
+    Min = 0, Max = 30, Default = 3,
 })
 
 local FOG_PRESETS = {
@@ -1773,10 +1442,7 @@ local function applyFog()
         density = wig.FogDensity:Get() / 100
         haze = wig.FogHaze:Get()
         blur = wig.FogBlur:Get() / 10
-        glare = 0
-        brightness = 0
-        tintColor = color
-        saturation = 0
+        glare = 0; brightness = 0; tintColor = color; saturation = 0
     else
         local preset = FOG_PRESETS[presetName] or FOG_PRESETS["Blue Mist"]
         color = preset.Color
@@ -1838,21 +1504,11 @@ local function applyFog()
 end
 
 wig.Fog:OnChanged(applyFog)
-wig.FogPreset:OnChanged(function()
-    if wig.Fog:Get() then applyFog() end
-end)
-wig.FogColor:OnChanged(function()
-    if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end
-end)
-wig.FogDensity:OnChanged(function()
-    if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end
-end)
-wig.FogHaze:OnChanged(function()
-    if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end
-end)
-wig.FogBlur:OnChanged(function()
-    if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end
-end)
+wig.FogPreset:OnChanged(function() if wig.Fog:Get() then applyFog() end end)
+wig.FogColor:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
+wig.FogDensity:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
+wig.FogHaze:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
+wig.FogBlur:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
 
 -- ========== CUSTOM SKY ==========
 wig.Sky = sections.Sky:ToggleCreate({
@@ -1898,17 +1554,14 @@ local SKY_PRESETS = {
 
 local function applySky()
     local lighting = game:GetService("Lighting")
-
     if not wig.Sky:Get() then
         if currentSky then currentSky:Destroy(); currentSky = nil end
         if currentAtmosphere then currentAtmosphere:Destroy(); currentAtmosphere = nil end
         if currentCC then currentCC:Destroy(); currentCC = nil end
         return
     end
-
     local presetName = wig.SkyPreset:Get()
     local preset = SKY_PRESETS[presetName] or SKY_PRESETS.Sunset
-
     if not currentSky then
         currentSky = Instance.new("Sky")
         currentSky.Name = "CustomSky"
@@ -1925,7 +1578,6 @@ local function applySky()
     currentSky.MoonAngularSize = preset.MoonAngularSize
     currentSky.SunAngularSize = preset.SunAngularSize
     lighting.ClockTime = preset.ClockTime
-
     if not currentAtmosphere then
         currentAtmosphere = Instance.new("Atmosphere")
         currentAtmosphere.Name = "CustomSkyAtmosphere"
@@ -1937,7 +1589,6 @@ local function applySky()
     currentAtmosphere.Haze = preset.AtmoHaze
     currentAtmosphere.Glare = preset.AtmoGlare
     currentAtmosphere.Offset = 0
-
     if not currentCC then
         currentCC = Instance.new("ColorCorrectionEffect")
         currentCC.Name = "CustomSkyCC"
@@ -1950,8 +1601,7 @@ local function applySky()
 end
 
 wig.Sky:OnChanged(function(value)
-    if value then
-        applySky()
+    if value then applySky()
     else
         if currentSky then currentSky:Destroy(); currentSky = nil end
         if currentAtmosphere then currentAtmosphere:Destroy(); currentAtmosphere = nil end
@@ -1959,9 +1609,7 @@ wig.Sky:OnChanged(function(value)
     end
 end)
 
-wig.SkyPreset:OnChanged(function()
-    if wig.Sky:Get() then applySky() end
-end)
+wig.SkyPreset:OnChanged(function() if wig.Sky:Get() then applySky() end end)
 
 -- ========== ANTI-AFK ==========
 local AntiAFKPlayers = game:GetService("Players")
@@ -1989,17 +1637,13 @@ wig.AntiAFKAction = antiAFKSettings:DropdownCreate({
 wig.AntiAFKMinutes = antiAFKSettings:SliderCreate({
     Id = "AntiAFKMinutes",
     Name = "Interval Minutes",
-    Min = 0,
-    Max = 19,
-    Default = 5,
+    Min = 0, Max = 19, Default = 5,
 })
 
 wig.AntiAFKSeconds = antiAFKSettings:SliderCreate({
     Id = "AntiAFKSeconds",
     Name = "Interval Seconds",
-    Min = 0,
-    Max = 59,
-    Default = 0,
+    Min = 0, Max = 59, Default = 0,
 })
 
 local antiAFKThread = nil
@@ -2010,34 +1654,21 @@ local function performAntiAFKAction()
     local character = AntiAFKPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local root = character and character:FindFirstChild("HumanoidRootPart")
-
-    if not humanoid or humanoid.Health <= 0 or not root then
-        return
-    end
-
+    if not humanoid or humanoid.Health <= 0 or not root then return end
     local action = wig.AntiAFKAction:Get()
-
     if action == "Jump" or action == "Jump + Walk" then
         humanoid.Jump = true
-        pcall(function()
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end)
+        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
     end
-
     if action == "Walk" or action == "Jump + Walk" then
         local direction = math.random(0, 1) == 0 and -1 or 1
         local moveDirection = root.CFrame.RightVector * direction
         moveDirection = Vector3.new(moveDirection.X, 0, moveDirection.Z)
-
         if moveDirection.Magnitude > 0 then
             humanoid:Move(moveDirection.Unit, false)
             local stopAt = os.clock() + 0.65
-            while os.clock() < stopAt and humanoid.Parent and humanoid.Health > 0 do
-                task.wait(0.05)
-            end
-            if humanoid.Parent then
-                humanoid:Move(Vector3.zero, false)
-            end
+            while os.clock() < stopAt and humanoid.Parent and humanoid.Health > 0 do task.wait(0.05) end
+            if humanoid.Parent then humanoid:Move(Vector3.zero, false) end
         end
     elseif action == "Turn" then
         root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(45), 0)
@@ -2047,54 +1678,32 @@ end
 wig.AntiAFK:OnChanged(function(enabled)
     antiAFKGeneration += 1
     local generation = antiAFKGeneration
-
-    if antiAFKThread then
-        pcall(task.cancel, antiAFKThread)
-        antiAFKThread = nil
-    end
-
-    if antiAFKIdledConnection then
-        antiAFKIdledConnection:Disconnect()
-        antiAFKIdledConnection = nil
-    end
-
-    if not enabled then
-        return
-    end
-
+    if antiAFKThread then pcall(task.cancel, antiAFKThread); antiAFKThread = nil end
+    if antiAFKIdledConnection then antiAFKIdledConnection:Disconnect(); antiAFKIdledConnection = nil end
+    if not enabled then return end
     pcall(function()
         antiAFKIdledConnection = AntiAFKPlayer.Idled:Connect(function()
-            if not wig.AntiAFK:Get() then
-                return
-            end
+            if not wig.AntiAFK:Get() then return end
             pcall(function()
                 AntiAFKVirtualUser:CaptureController()
                 AntiAFKVirtualUser:ClickButton2(Vector2.new(0, 0))
             end)
         end)
     end)
-
     antiAFKThread = task.spawn(function()
         while wig.AntiAFK:Get() and generation == antiAFKGeneration do
             pcall(performAntiAFKAction)
-
             local minutes = tonumber(wig.AntiAFKMinutes:Get()) or 5
             local seconds = tonumber(wig.AntiAFKSeconds:Get()) or 0
             local interval = math.max(1, minutes * 60 + seconds)
             local elapsed = 0
-
-            while elapsed < interval
-                and wig.AntiAFK:Get()
-                and generation == antiAFKGeneration do
+            while elapsed < interval and wig.AntiAFK:Get() and generation == antiAFKGeneration do
                 local step = math.min(0.25, interval - elapsed)
                 task.wait(step)
                 elapsed += step
             end
         end
-
-        if generation == antiAFKGeneration then
-            antiAFKThread = nil
-        end
+        if generation == antiAFKGeneration then antiAFKThread = nil end
     end)
 end)
 
@@ -2133,25 +1742,19 @@ local aimSettings = wig.Aimbot:CreateSettings({ Name = "Sensitivity" })
 wig.AimFOV = aimSettings:SliderCreate({
     Id = "Aimbot.FOV",
     Name = "FOV Size",
-    Min = 10,
-    Max = 500,
-    Default = 150,
+    Min = 10, Max = 500, Default = 150,
 })
 
 wig.AimSmoothness = aimSettings:SliderCreate({
     Id = "Aimbot.Smoothness",
     Name = "Smoothness (Lower is faster)",
-    Min = 1,
-    Max = 100,
-    Default = 20,
+    Min = 1, Max = 100, Default = 20,
 })
 
 wig.AimDistance = aimSettings:SliderCreate({
     Id = "Aimbot.Distance",
     Name = "Max Distance (Studs)",
-    Min = 35,
-    Max = 600,
-    Default = 300,
+    Min = 35, Max = 600, Default = 300,
 })
 
 local uis = game:GetService("UserInputService")
@@ -2163,15 +1766,10 @@ local keybindPressed = false
 
 wig.AimKeybind:OnClick(function(active, key)
     if active then
-        if wig.AimMode:Get() == "Toggle Key" then
-            aimActive = not aimActive
-        elseif wig.AimMode:Get() == "Hold Key" then
-            keybindPressed = true
-        end
+        if wig.AimMode:Get() == "Toggle Key" then aimActive = not aimActive
+        elseif wig.AimMode:Get() == "Hold Key" then keybindPressed = true end
     else
-        if wig.AimMode:Get() == "Hold Key" then
-            keybindPressed = false
-        end
+        if wig.AimMode:Get() == "Hold Key" then keybindPressed = false end
     end
 end)
 
@@ -2179,9 +1777,7 @@ uis.InputEnded:Connect(function(input, gpe)
     if gpe then return end
     local currentKey = wig.AimKeybind:Get()
     if input.KeyCode == currentKey then
-        if wig.AimMode:Get() == "Hold Key" then
-            keybindPressed = false
-        end
+        if wig.AimMode:Get() == "Hold Key" then keybindPressed = false end
     end
 end)
 
@@ -2193,24 +1789,20 @@ local function createFOVCircle()
     fovCircle.Name = "AimbotFOV"
     fovCircle.IgnoreGuiInset = true
     fovCircle.ResetOnSpawn = false
-    
     local frame = Instance.new("Frame")
     frame.Name = "Circle"
     frame.BackgroundTransparency = 1
     frame.AnchorPoint = Vector2.new(0.5, 0.5)
     frame.Position = UDim2.fromScale(0.5, 0.5)
     frame.Parent = fovCircle
-    
     local uiCorner = Instance.new("UICorner")
     uiCorner.CornerRadius = UDim.new(1, 0)
     uiCorner.Parent = frame
-    
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(255, 255, 255)
     stroke.Thickness = 1
     stroke.Transparency = 0.5
     stroke.Parent = frame
-    
     fovCircle.Parent = game:GetService("CoreGui")
     return frame
 end
@@ -2234,13 +1826,10 @@ local function getClosestPlayerInFOV()
     local localPlayer = game:GetService("Players").LocalPlayer
     local localChar = localPlayer.Character
     local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-
     for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
         if player ~= localPlayer and player.Character then
             local partName = wig.AimPart:Get()
-            local targetPart = player.Character:FindFirstChild(partName) 
-                or player.Character:FindFirstChild("HumanoidRootPart")
-            
+            local targetPart = player.Character:FindFirstChild(partName) or player.Character:FindFirstChild("HumanoidRootPart")
             if targetPart then
                 local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
                 if humanoid and humanoid.Health > 0 then
@@ -2250,10 +1839,7 @@ local function getClosestPlayerInFOV()
                             local screenPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
                             if onScreen then
                                 local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(centerX, centerY)).Magnitude
-                                if dist2D < shortestDistance then
-                                    shortestDistance = dist2D
-                                    closestPlayer = player
-                                end
+                                if dist2D < shortestDistance then shortestDistance = dist2D; closestPlayer = player end
                             end
                         end
                     end
@@ -2266,17 +1852,13 @@ end
 
 local function aimLoop()
     if not wig.Aimbot:Get() then return end
-    
     local mode = wig.AimMode:Get()
     if mode == "Hold Key" and not keybindPressed then return end
     if mode == "Toggle Key" and not aimActive then return end
-    
     local target = getClosestPlayerInFOV()
     if target and target.Character then
         local partName = wig.AimPart:Get()
-        local targetPart = target.Character:FindFirstChild(partName) 
-            or target.Character:FindFirstChild("HumanoidRootPart")
-        
+        local targetPart = target.Character:FindFirstChild(partName) or target.Character:FindFirstChild("HumanoidRootPart")
         if targetPart then
             local smooth = wig.AimSmoothness:Get() / 10
             local targetCFrame = CFrame.lookAt(camera.CFrame.Position, targetPart.Position)
@@ -2295,9 +1877,7 @@ wig.Aimbot:OnChanged(function(value)
     end
 end)
 
-wig.AimFOV:OnChanged(function()
-    updateFOVCircle()
-end)
+wig.AimFOV:OnChanged(function() updateFOVCircle() end)
 
 runService.RenderStepped:Connect(function()
     if wig.Aimbot:Get() then
@@ -2332,13 +1912,10 @@ local function isLocalPlayerAlive()
     local player = game:GetService("Players").LocalPlayer
     local alive = player:GetAttribute("Alive")
     if alive == false then return false end
-    
     local character = player.Character
     if not character then return false end
-    
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then return false end
-    
     return true
 end
 
@@ -2346,18 +1923,14 @@ local function isLocalPlayerMurderer()
     local player = game:GetService("Players").LocalPlayer
     local backpack = player:FindFirstChild("Backpack")
     local character = player.Character
-    
     if backpack and backpack:FindFirstChild("Knife") then return true end
     if character and character:FindFirstChild("Knife") then return true end
-    
     return false
 end
 
 local function getActiveMap()
     for _, obj in ipairs(workspace:GetChildren()) do
-        if obj:GetAttribute("MapID") then
-            return obj
-        end
+        if obj:GetAttribute("MapID") then return obj end
     end
     return nil
 end
@@ -2365,28 +1938,19 @@ end
 local function teleportToGun(gunModel)
     if not isLocalPlayerAlive() then return end
     if isLocalPlayerMurderer() then return end
-
     local player = game:GetService("Players").LocalPlayer
     local character = player.Character
     if not character then return end
-
     local hrp = character:FindFirstChild("HumanoidRootPart")
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not hrp or not humanoid or humanoid.Health <= 0 then return end
-
     local targetPart = gunModel
-    if gunModel:IsA("Model") then
-        targetPart = gunModel.PrimaryPart or gunModel:FindFirstChildWhichIsA("BasePart")
-    end
-
+    if gunModel:IsA("Model") then targetPart = gunModel.PrimaryPart or gunModel:FindFirstChildWhichIsA("BasePart") end
     if not targetPart or not targetPart:IsA("BasePart") then return end
-
     local originalCFrame = hrp.CFrame
-
     hrp.Anchored = false
     hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 3, 0))
     task.wait(0.2)
-
     for _, part in ipairs(gunModel:GetDescendants()) do
         if part:IsA("BasePart") then
             pcall(function()
@@ -2396,24 +1960,17 @@ local function teleportToGun(gunModel)
             end)
         end
     end
-    
     task.wait(0.3)
-
-    if wig.AutoGunReturn:Get() and hrp and hrp.Parent then
-        hrp.CFrame = originalCFrame
-    end
+    if wig.AutoGunReturn:Get() and hrp and hrp.Parent then hrp.CFrame = originalCFrame end
 end
 
 local function watchGunDrop()
     if gunConnection then gunConnection:Disconnect() end
-    
     gunConnection = workspace.DescendantAdded:Connect(function(obj)
         if not wig.AutoGun:Get() then return end
         if obj.Name == "GunDrop" then
             local map = getActiveMap()
-            if map and obj:IsDescendantOf(map) then
-                task.spawn(teleportToGun, obj)
-            end
+            if map and obj:IsDescendantOf(map) then task.spawn(teleportToGun, obj) end
         end
     end)
 end
@@ -2421,7 +1978,6 @@ end
 wig.AutoGun:OnChanged(function(value)
     if value then
         watchGunDrop()
-        
         if gunCheckThread then task.cancel(gunCheckThread) end
         gunCheckThread = task.spawn(function()
             while wig.AutoGun:Get() do
@@ -2429,9 +1985,7 @@ wig.AutoGun:OnChanged(function(value)
                     local map = getActiveMap()
                     if map then
                         local gun = map:FindFirstChild("GunDrop", true)
-                        if gun then
-                            teleportToGun(gun)
-                        end
+                        if gun then teleportToGun(gun) end
                     end
                 end
                 task.wait(2)
@@ -2462,23 +2016,15 @@ local gunEspConnections = {}
 local gunHighlight = nil
 
 local function removeGunESP()
-    if gunHighlight and gunHighlight.Parent then
-        gunHighlight:Destroy()
-        gunHighlight = nil
-    end
+    if gunHighlight and gunHighlight.Parent then gunHighlight:Destroy(); gunHighlight = nil end
 end
 
 local function applyGunESP(gunModel)
     removeGunESP()
     if not wig.GunESP:Get() then return end
-    
     local part = gunModel
-    if gunModel:IsA("Model") then
-        part = gunModel.PrimaryPart or gunModel:FindFirstChildWhichIsA("BasePart")
-    end
-    
+    if gunModel:IsA("Model") then part = gunModel.PrimaryPart or gunModel:FindFirstChildWhichIsA("BasePart") end
     if not part or not part:IsA("BasePart") then return end
-
     gunHighlight = Instance.new("Highlight")
     gunHighlight.Name = "GunESP_Highlight"
     gunHighlight.FillColor = wig.GunColor:Get()
@@ -2492,22 +2038,15 @@ wig.GunESP:OnChanged(function(value)
     if value then
         table.insert(gunEspConnections, workspace.DescendantAdded:Connect(function(obj)
             if not wig.GunESP:Get() then return end
-            if obj.Name == "GunDrop" then
-                task.spawn(applyGunESP, obj)
-            end
+            if obj.Name == "GunDrop" then task.spawn(applyGunESP, obj) end
         end))
-
         local map = getActiveMap()
         if map then
             local gun = map:FindFirstChild("GunDrop", true)
-            if gun then
-                task.spawn(applyGunESP, gun)
-            end
+            if gun then task.spawn(applyGunESP, gun) end
         end
     else
-        for _, conn in ipairs(gunEspConnections) do
-            if conn then conn:Disconnect() end
-        end
+        for _, conn in ipairs(gunEspConnections) do if conn then conn:Disconnect() end end
         table.clear(gunEspConnections)
         removeGunESP()
     end
@@ -2518,9 +2057,7 @@ wig.GunColor:OnChanged(function()
         local map = getActiveMap()
         if map then
             local gun = map:FindFirstChild("GunDrop", true)
-            if gun then
-                applyGunESP(gun)
-            end
+            if gun then applyGunESP(gun) end
         end
     end
 end)
@@ -2548,32 +2085,17 @@ local autoMouseThread = nil
 wig.FixMouse:OnClick(function()
     if fixMouseRunning then return end
     fixMouseRunning = true
-
     local uis = game:GetService("UserInputService")
     local runService = game:GetService("RunService")
     local player = game:GetService("Players").LocalPlayer
     local startTime = tick()
-
-    if player.CameraMode == Enum.CameraMode.LockFirstPerson then
-        player.CameraMode = Enum.CameraMode.Classic
-    end
-
-    ui:Notify({
-        Title = "Mouse Fixed",
-        Description = "Unlocked for 1 second",
-        Type = "Success",
-        Duration = 2
-    })
-
+    if player.CameraMode == Enum.CameraMode.LockFirstPerson then player.CameraMode = Enum.CameraMode.Classic end
+    ui:Notify({ Title = "Mouse Fixed", Description = "Unlocked for 1 second", Type = "Success", Duration = 2 })
     local conn
     conn = runService.RenderStepped:Connect(function()
         uis.MouseBehavior = Enum.MouseBehavior.Default
         uis.MouseIconEnabled = true
-        
-        if tick() - startTime > 1 then
-            conn:Disconnect()
-            fixMouseRunning = false
-        end
+        if tick() - startTime > 1 then conn:Disconnect(); fixMouseRunning = false end
     end)
 end)
 
@@ -2581,20 +2103,13 @@ local function doAutoFix()
     local uis = game:GetService("UserInputService")
     local runService = game:GetService("RunService")
     local player = game:GetService("Players").LocalPlayer
-
-    if player.CameraMode == Enum.CameraMode.LockFirstPerson then
-        player.CameraMode = Enum.CameraMode.Classic
-    end
-
+    if player.CameraMode == Enum.CameraMode.LockFirstPerson then player.CameraMode = Enum.CameraMode.Classic end
     local startTime = tick()
     local conn
     conn = runService.RenderStepped:Connect(function()
         uis.MouseBehavior = Enum.MouseBehavior.Default
         uis.MouseIconEnabled = true
-        
-        if tick() - startTime > 0.5 then
-            conn:Disconnect()
-        end
+        if tick() - startTime > 0.5 then conn:Disconnect() end
     end)
 end
 
@@ -2608,10 +2123,7 @@ wig.AutoMouseFix:OnChanged(function(value)
             end
         end)
     else
-        if autoMouseThread then
-            task.cancel(autoMouseThread)
-            autoMouseThread = nil
-        end
+        if autoMouseThread then task.cancel(autoMouseThread); autoMouseThread = nil end
     end
 end)
 
@@ -2623,10 +2135,7 @@ wig.SpeedToggle = playerSection:SliderToggleCreate({
     Name = "WalkSpeed",
     Description = "Adjust character movement speed",
     DefaultEnabled = false,
-    Min = 16,
-    Max = 200,
-    DefaultValue = 16,
-    Step = 1,
+    Min = 16, Max = 200, DefaultValue = 16, Step = 1,
 })
 
 wig.JumpToggle = playerSection:SliderToggleCreate({
@@ -2634,10 +2143,7 @@ wig.JumpToggle = playerSection:SliderToggleCreate({
     Name = "JumpPower",
     Description = "Adjust character jump height",
     DefaultEnabled = false,
-    Min = 50,
-    Max = 500,
-    DefaultValue = 50,
-    Step = 5,
+    Min = 50, Max = 500, DefaultValue = 50, Step = 5,
 })
 
 local fovSection = tabs.Visuals:SectionCreate({ Name = "Camera Settings", Side = "Right" })
@@ -2647,10 +2153,7 @@ wig.FOVToggle = fovSection:SliderToggleCreate({
     Name = "Field of View",
     Description = "Adjust camera FOV",
     DefaultEnabled = false,
-    Min = 30,
-    Max = 120,
-    DefaultValue = 70,
-    Step = 1,
+    Min = 30, Max = 120, DefaultValue = 70, Step = 1,
 })
 
 local originalSpeed = 16
@@ -2665,40 +2168,29 @@ end
 wig.SpeedToggle:OnChanged(function(enabled, value)
     local humanoid = getHumanoid()
     if humanoid then
-        if enabled then
-            humanoid.WalkSpeed = value
-        else
-            humanoid.WalkSpeed = originalSpeed
-        end
+        if enabled then humanoid.WalkSpeed = value
+        else humanoid.WalkSpeed = originalSpeed end
     end
 end)
 
 wig.JumpToggle:OnChanged(function(enabled, value)
     local humanoid = getHumanoid()
     if humanoid then
-        if enabled then
-            humanoid.UseJumpPower = true
-            humanoid.JumpPower = value
-        else
-            humanoid.JumpPower = originalJump
-        end
+        if enabled then humanoid.UseJumpPower = true; humanoid.JumpPower = value
+        else humanoid.JumpPower = originalJump end
     end
 end)
 
 wig.FOVToggle:OnChanged(function(enabled, value)
     local camera = workspace.CurrentCamera
-    if enabled then
-        camera.FieldOfView = value
-    else
-        camera.FieldOfView = originalFOV
-    end
+    if enabled then camera.FieldOfView = value
+    else camera.FieldOfView = originalFOV end
 end)
 
 game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     originalSpeed = 16
     originalJump = 50
-    
     if wig.SpeedToggle:Get().Enabled then
         local h = char:FindFirstChildOfClass("Humanoid")
         if h then h.WalkSpeed = wig.SpeedToggle:Get().Value end
@@ -2724,17 +2216,13 @@ local bunnySettings = wig.BunnyHop:CreateSettings({ Name = "Bunny Settings" })
 wig.BunnySpeedBoost = bunnySettings:SliderCreate({
     Id = "BunnyHop.SpeedBoost",
     Name = "Speed Add per Jump",
-    Min = 1,
-    Max = 20,
-    Default = 5,
+    Min = 1, Max = 20, Default = 5,
 })
 
 wig.BunnyMaxSpeed = bunnySettings:SliderCreate({
     Id = "BunnyHop.MaxSpeed",
     Name = "Max Speed",
-    Min = 20,
-    Max = 200,
-    Default = 100,
+    Min = 20, Max = 200, Default = 100,
 })
 
 local bunnyConnections = {}
@@ -2749,15 +2237,11 @@ end
 local function hookBunnyHop(character)
     local humanoid = character:WaitForChild("Humanoid", 5)
     if not humanoid then return end
-
     bunnySpeed = 16
     lastJumpTime = tick()
-
     local wasAirborne = false
-
     table.insert(bunnyConnections, humanoid.StateChanged:Connect(function(_, newState)
         if not wig.BunnyHop:Get() then return end
-
         if newState == Enum.HumanoidStateType.Jumping or newState == Enum.HumanoidStateType.Freefall then
             wasAirborne = true
         elseif newState == Enum.HumanoidStateType.Landed or newState == Enum.HumanoidStateType.Running then
@@ -2773,12 +2257,9 @@ end
 
 table.insert(bunnyConnections, game:GetService("RunService").Heartbeat:Connect(function()
     if not wig.BunnyHop:Get() then return end
-
     local humanoid = getLocalHumanoid()
     if not humanoid then return end
-
     local moveDir = humanoid.MoveDirection
-    
     if moveDir.Magnitude < 0.1 then
         bunnySpeed = 16
         humanoid.WalkSpeed = 16
@@ -2787,9 +2268,7 @@ table.insert(bunnyConnections, game:GetService("RunService").Heartbeat:Connect(f
             bunnySpeed = 16
             humanoid.WalkSpeed = 16
         else
-            if humanoid.WalkSpeed < bunnySpeed then
-                humanoid.WalkSpeed = bunnySpeed
-            end
+            if humanoid.WalkSpeed < bunnySpeed then humanoid.WalkSpeed = bunnySpeed end
         end
     end
 end))
@@ -2797,26 +2276,16 @@ end))
 wig.BunnyHop:OnChanged(function(value)
     if value then
         local player = game:GetService("Players").LocalPlayer
-        if player.Character then
-            hookBunnyHop(player.Character)
-        end
-        
+        if player.Character then hookBunnyHop(player.Character) end
         table.insert(bunnyConnections, player.CharacterAdded:Connect(function(character)
             task.wait(0.5)
-            if wig.BunnyHop:Get() then
-                hookBunnyHop(character)
-            end
+            if wig.BunnyHop:Get() then hookBunnyHop(character) end
         end))
     else
-        for _, conn in ipairs(bunnyConnections) do
-            if conn and conn.Disconnect then conn:Disconnect() end
-        end
+        for _, conn in ipairs(bunnyConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
         table.clear(bunnyConnections)
-        
         local humanoid = getLocalHumanoid()
-        if humanoid then
-            humanoid.WalkSpeed = 16
-        end
+        if humanoid then humanoid.WalkSpeed = 16 end
         bunnySpeed = 16
     end
 end)
@@ -2849,55 +2318,36 @@ end
 local function startAntiTouch()
     local player = game:GetService("Players").LocalPlayer
     antiTouchActive = true
-    
-    if player.Character then
-        applyAntiTouch(player.Character)
-    end
-
+    if player.Character then applyAntiTouch(player.Character) end
     table.insert(antiTouchConnections, player.CharacterAdded:Connect(function(char)
         task.wait(0.5)
-        if antiTouchActive then
-            applyAntiTouch(char)
-        end
+        if antiTouchActive then applyAntiTouch(char) end
     end))
-
     table.insert(antiTouchConnections, game:GetService("RunService").Heartbeat:Connect(function()
         if not antiTouchActive then return end
         local char = player.Character
         if not char then return end
-        
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanTouch = false
-            end
+            if part:IsA("BasePart") then part.CanTouch = false end
         end
     end))
 end
 
 local function stopAntiTouch()
     antiTouchActive = false
-    for _, conn in ipairs(antiTouchConnections) do
-        if conn and conn.Disconnect then conn:Disconnect() end
-    end
+    for _, conn in ipairs(antiTouchConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
     table.clear(antiTouchConnections)
-    
     local char = game:GetService("Players").LocalPlayer.Character
     if char then
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanTouch = true
-                part.CanCollide = true
-            end
+            if part:IsA("BasePart") then part.CanTouch = true; part.CanCollide = true end
         end
     end
 end
 
 wig.AntiTouch:OnChanged(function(value)
-    if value then
-        startAntiTouch()
-    else
-        stopAntiTouch()
-    end
+    if value then startAntiTouch()
+    else stopAntiTouch() end
 end)
 
 -- ========== AUTO KILL INNOCENTS ==========
@@ -2922,9 +2372,7 @@ wig.KillTargetMode = killSettings:DropdownCreate({
 wig.KillDistance = killSettings:SliderCreate({
     Id = "AutoKillInnocents.Distance",
     Name = "Teleport Distance",
-    Min = 1,
-    Max = 10,
-    Default = 1,
+    Min = 1, Max = 10, Default = 1,
 })
 
 local killThread = nil
@@ -2932,12 +2380,10 @@ local killThread = nil
 local function isAlive(player)
     local alive = player:GetAttribute("Alive")
     if alive == false then return false end
-    
     local char = player.Character
     if not char then return false end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then return false end
-    
     return true
 end
 
@@ -2952,14 +2398,12 @@ local function getTargets()
     local player = game:GetService("Players").LocalPlayer
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return {} end
-
     local targets = {}
     for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
         if p ~= player and p.Character and isAlive(p) then
             local backpack = p:FindFirstChild("Backpack")
             local char = p.Character
             local hasKnife = (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
-            
             if not hasKnife then
                 local mHrp = char:FindFirstChild("HumanoidRootPart")
                 local mHumanoid = char:FindFirstChildOfClass("Humanoid")
@@ -2983,23 +2427,12 @@ end
 local function getBestTarget(targets)
     if #targets == 0 then return nil end
     local mode = wig.KillTargetMode:Get()
-
     if mode == "Sheriff First" then
-        for _, t in ipairs(targets) do
-            if t.IsSheriff then return t end
-        end
+        for _, t in ipairs(targets) do if t.IsSheriff then return t end end
     end
-
-    if mode == "Random" then
-        return targets[math.random(1, #targets)]
-    end
-
+    if mode == "Random" then return targets[math.random(1, #targets)] end
     local best = targets[1]
-    for _, t in ipairs(targets) do
-        if t.Distance < best.Distance then
-            best = t
-        end
-    end
+    for _, t in ipairs(targets) do if t.Distance < best.Distance then best = t end end
     return best
 end
 
@@ -3011,10 +2444,7 @@ local function getKnife()
     local knife = char:FindFirstChild("Knife")
     if knife then return knife end
     local bk = backpack:FindFirstChild("Knife")
-    if bk then
-        bk.Parent = char
-        return bk
-    end
+    if bk then bk.Parent = char; return bk end
     return nil
 end
 
@@ -3023,16 +2453,11 @@ local function attackTarget(target)
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp or not target.Hrp or not target.Humanoid or target.Humanoid.Health <= 0 then return end
-
     hrp.Anchored = true
-
     local dir = (target.Hrp.Position - hrp.Position).Unit
     local dist = wig.KillDistance:Get()
-    
     hrp.CFrame = CFrame.lookAt(target.Hrp.Position - dir * dist + Vector3.new(0, 1, 0), target.Hrp.Position)
-
     task.wait()
-
     local knife = getKnife()
     if knife then
         local handle = knife:FindFirstChild("Handle")
@@ -3045,7 +2470,6 @@ local function attackTarget(target)
         end
         pcall(function() knife:Activate() end)
     end
-
     hrp.Anchored = false
 end
 
@@ -3056,13 +2480,10 @@ local function startAutoKill()
         while wig.AutoKillInnocents:Get() do
             local char = player.Character
             local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-            
             if char and humanoid and humanoid.Health > 0 and isAlive(player) and isMurderer() then
                 local targets = getTargets()
                 local target = getBestTarget(targets)
-                if target then
-                    attackTarget(target)
-                end
+                if target then attackTarget(target) end
             end
             task.wait(0.05)
         end
@@ -3070,10 +2491,7 @@ local function startAutoKill()
 end
 
 local function stopAutoKill()
-    if killThread then
-        task.cancel(killThread)
-        killThread = nil
-    end
+    if killThread then task.cancel(killThread); killThread = nil end
     local char = game:GetService("Players").LocalPlayer.Character
     if char then
         local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -3111,7 +2529,6 @@ local noclipParts = {}
 local function startNoclip()
     local player = game:GetService("Players").LocalPlayer
     if noclipConnection then noclipConnection:Disconnect() end
-    
     noclipParts = {}
     noclipConnection = game:GetService("RunService").Stepped:Connect(function()
         if not wig.Noclip:Get() then return end
@@ -3128,31 +2545,20 @@ local function startNoclip()
 end
 
 local function stopNoclip()
-    if noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-    end
-    
+    if noclipConnection then noclipConnection:Disconnect(); noclipConnection = nil end
     task.wait(0.1)
     for child, _ in pairs(noclipParts) do
-        if typeof(child) == "Instance" and child:IsA("BasePart") and child.Parent then
-            child.CanCollide = true
-        end
+        if typeof(child) == "Instance" and child:IsA("BasePart") and child.Parent then child.CanCollide = true end
     end
     noclipParts = {}
 end
 
 wig.Noclip:OnChanged(function(value)
-    if value then
-        startNoclip()
-    else
-        stopNoclip()
-    end
+    if value then startNoclip()
+    else stopNoclip() end
 end)
 
 game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
-    if wig.Noclip:Get() then
-        startNoclip()
-    end
+    if wig.Noclip:Get() then startNoclip() end
 end)
