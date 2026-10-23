@@ -1,8 +1,17 @@
-if getgenv().OnrushaLoaded then
-    local oldGui = game:GetService("CoreGui"):FindFirstChild("Onrusha")
-    if oldGui then oldGui:Destroy() end
-    return 
+local CoreGui = game:GetService("CoreGui")
+local RobloxGui = CoreGui:FindFirstChild("RobloxGui")
+local existingGui = RobloxGui and RobloxGui:FindFirstChild("OnrushaUI")
+
+if existingGui then
+    existingGui:Destroy()
 end
+
+if getgenv().OnrushaLoaded then
+    if RobloxGui and RobloxGui:FindFirstChild("OnrushaUI") then
+        return
+    end
+end
+
 getgenv().OnrushaLoaded = true
 
 local LIBRARY_URL = "https://raw.githubusercontent.com/Andreusha1/OnrushaHub/refs/heads/main/script"
@@ -111,7 +120,7 @@ local libraryOk, Onrusha = pcall(chunk)
 assert(libraryOk and type(Onrusha) == "table" and type(Onrusha.Create) == "function", "[Onrusha] Библиотека не вернула API: " .. tostring(Onrusha))
 
 local ui = Onrusha.Create({
-    Name = "Onrusha Function Test",
+    Name = "Onrusha",
     Subtitle = "mm2",
     Open = true,
     ToggleKey = Enum.KeyCode.H,
@@ -548,25 +557,19 @@ wig.FarmTarget = farmSettings:DropdownCreate({
 wig.FarmSpeed = farmSettings:SliderCreate({
     Id = "AutoFarm.Speed",
     Name = "Fly Speed",
-    Min = 5,
-    Max = 100,
-    Default = 30,
+    Min = 5, Max = 100, Default = 30,
 })
 
 wig.FarmRadius = farmSettings:SliderCreate({
     Id = "AutoFarm.Radius",
     Name = "Search Radius",
-    Min = 50,
-    Max = 2000,
-    Default = 500,
+    Min = 50, Max = 2000, Default = 500,
 })
 
 wig.FarmTimeout = farmSettings:SliderCreate({
     Id = "AutoFarm.Timeout",
     Name = "Pickup Timeout (x0.1)",
-    Min = 10,
-    Max = 100,
-    Default = 30,
+    Min = 10, Max = 100, Default = 30,
 })
 
 wig.FarmAfterAction = farmSettings:DropdownCreate({
@@ -581,6 +584,7 @@ local COOLDOWN = {}
 local farmThread = nil
 local farmAnchorConn = nil
 local hasFullInventory = false
+local MAX_INVENTORY = 50
 
 local function isFarmCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
 
@@ -609,7 +613,7 @@ local function checkInventoryFull()
     for _, child in ipairs(container:GetChildren()) do
         if child:IsA("GuiObject") and child.Visible then activeChildren += 1 end
     end
-    return activeChildren > 0
+    return activeChildren >= MAX_INVENTORY
 end
 
 local function executeAfterAction()
@@ -815,17 +819,13 @@ wig.TrailWho = trailSettings:DropdownCreate({
 wig.TrailLifetime = trailSettings:SliderCreate({
     Id = "Trails.Lifetime",
     Name = "Lifetime",
-    Min = 10,
-    Max = 300,
-    Default = 60,
+    Min = 10, Max = 300, Default = 60,
 })
 
 wig.TrailThickness = trailSettings:SliderCreate({
     Id = "Trails.Thickness",
     Name = "Thickness",
-    Min = 5,
-    Max = 100,
-    Default = 30,
+    Min = 5, Max = 100, Default = 30,
 })
 
 local trailConnections = {}
@@ -2485,7 +2485,7 @@ local function startAutoKill()
                 local target = getBestTarget(targets)
                 if target then attackTarget(target) end
             end
-            task.wait(0.05)
+            task.wait(0.1)
         end
     end)
 end
@@ -2501,13 +2501,8 @@ end
 
 wig.AutoKillInnocents:OnChanged(function(value)
     if value then
-        if not isMurderer() then
-            ui:Notify({ Title = "Auto Kill", Description = "You are not the Murderer!", Type = "Error", Duration = 3 })
-            wig.AutoKillInnocents:Set(false)
-            return
-        end
         startAutoKill()
-        ui:Notify({ Title = "Auto Kill", Description = "Hunting Innocents...", Type = "Success", Duration = 3 })
+        ui:Notify({ Title = "Auto Kill", Description = "Waiting for Murderer role...", Type = "Success", Duration = 3 })
     else
         stopAutoKill()
     end
