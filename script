@@ -1,3 +1,4 @@
+-- ========== RECONNECT ==========
 local CoreGui = game:GetService("CoreGui")
 local RobloxGui = CoreGui:FindFirstChild("RobloxGui")
 local existingGui = RobloxGui and RobloxGui:FindFirstChild("OnrushaUI")
@@ -130,7 +131,7 @@ local ui = Onrusha.Create({
     Subtitle = "mm2",
     Open = true,
     ToggleKey = Enum.KeyCode.H,
-    Theme = "Ocean",
+    Theme = "Black & White",
     Scale = 0.96,
     Draggable = true,
     MobileSupport = true,
@@ -141,7 +142,7 @@ local ui = Onrusha.Create({
     WindowParticleStyle = "Orbs",
     DragEffectStyle = "Soft Glow",
     KeyGate = {
-        Enabled = true,
+        Enabled = false,
         Key = "",
         ValidateUrl = VALIDATE_URL,
         DiscordUrl = DISCORD_URL,
@@ -152,6 +153,11 @@ local tabs = {
     Main = ui:TabCreate({ Name = "Main", Icon = "M", Description = "Main options" }),
     Visuals = ui:TabCreate({ Name = "Visuals", Icon = "V", Description = "Colors, status, images and progress" }),
     Combat = ui:TabCreate({ Name = "Combat", Icon = "C", Description = "Aimbot & Combat" }),
+    Troll = ui:TabCreate({
+    Name = "Troll",
+    Icon = "T",
+    Description = "Troll effects and emotes",
+}),
 }
 
 local sections = {
@@ -166,11 +172,43 @@ local sections = {
 
     Aim = tabs.Combat:SectionCreate({ Name = "Aimbot", Side = "Left" }),
     AimSettings = tabs.Combat:SectionCreate({ Name = "Aimbot Settings", Side = "Right" }),
+Emotes = tabs.Troll:SectionCreate({
+    Name = "Emotes",
+    Side = "Right",
+}),
 }
 
 local wig = {}
 
--- ========== RECONNECT ==========
+local function getPlayerRoleGlobal(player)
+    local backpack = player:FindFirstChild("Backpack")
+    if (backpack and backpack:FindFirstChild("Knife")) or (player.Character and player.Character:FindFirstChild("Knife")) then
+        return "Murder"
+    elseif (backpack and backpack:FindFirstChild("Gun")) or (player.Character and player.Character:FindFirstChild("Gun")) then
+        return "Sheriff"
+    end
+    return "Player"
+end
+
+local function isMurdererGlobal()
+    return getPlayerRoleGlobal(game:GetService("Players").LocalPlayer) == "Murder"
+end
+
+local function getKnifeGlobal()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    local backpack = player:FindFirstChild("Backpack")
+    if not char or not backpack then return nil end
+    local knife = char:FindFirstChild("Knife")
+    if knife then return knife end
+    local bk = backpack:FindFirstChild("Knife")
+    if bk then
+        bk.Parent = char
+        return bk
+    end
+    return nil
+end
+
 local AutoReconnect = false
 local autoReconnectConnection
 local reconnectBusy = false
@@ -257,6 +295,7 @@ wig.AutoReconnect:OnChanged(function(value)
     end)
 end)
 
+do
 -- ========== PLAYER ESP ==========
 wig.ESP = sections.Player:ToggleCreate({
     Id = "ESP",
@@ -304,20 +343,10 @@ local function removeESP(player)
     end
 end
 
-local function getPlayerRole(player)
-    local backpack = player:FindFirstChild("Backpack")
-    if (backpack and backpack:FindFirstChild("Knife")) or (player.Character and player.Character:FindFirstChild("Knife")) then
-        return "Murder"
-    elseif (backpack and backpack:FindFirstChild("Gun")) or (player.Character and player.Character:FindFirstChild("Gun")) then
-        return "Sheriff"
-    end
-    return "Player"
-end
-
 local function shouldShowPlayer(player)
     local filter = wig.FilterMode:Get()
     if filter == "All" then return true end
-    local role = getPlayerRole(player)
+    local role = getPlayerRoleGlobal(player)
     if filter == "Murder Only" and role == "Murder" then return true
     elseif filter == "Sheriff Only" and role == "Sheriff" then return true
     elseif filter == "Murder & Sheriff" and (role == "Murder" or role == "Sheriff") then return true end
@@ -325,7 +354,7 @@ local function shouldShowPlayer(player)
 end
 
 local function getESPColor(player)
-    local role = getPlayerRole(player)
+    local role = getPlayerRoleGlobal(player)
     if role == "Murder" then return wig.MurderColor:Get()
     elseif role == "Sheriff" then return wig.SheriffColor:Get() end
     return wig.PlayerColor:Get()
@@ -435,6 +464,9 @@ wig.ESP:OnChanged(function(value)
     end
 end)
 
+end
+do
+-- ========== COIN ESP ==========
 wig.CoinESP = sections.ESP:ToggleCreate({
     Id = "CoinESP",
     Name = "Coin & Candy ESP",
@@ -543,6 +575,8 @@ wig.CoinFilter:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP(
 wig.CoinColor:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP() end end)
 wig.CandyColor:OnChanged(function() if wig.CoinESP:Get() then refreshAllItemESP() end end)
 
+end
+do
 -- ========== AUTO FARM ==========
 wig.AutoFarm = sections.Farm:ToggleCreate({
     Id = "AutoFarm",
@@ -581,7 +615,13 @@ wig.FarmTimeout = farmSettings:SliderCreate({
 wig.FarmAfterAction = farmSettings:DropdownCreate({
     Id = "AutoFarm.AfterAction",
     Name = "After Full Inventory",
-    Options = { "Nothing", "Auto Kill All", "Suicide", "Auto Role Action" },
+    Options = {
+        "Nothing",
+        "Auto Kill All",
+        "Suicide",
+        "Auto Role Action",
+        "Shoot Murderer",
+    },
     Default = "Auto Role Action",
 })
 
@@ -589,15 +629,29 @@ local COOLDOWN_TIME = 5
 local COOLDOWN = {}
 local farmThread = nil
 local farmAnchorConn = nil
+local farmFullActionDone = false
 
-local function isFarmCandy(coinServer) return coinServer:GetAttribute("CoinID") == "Candy" end
+local function isFarmCandy(coinServer)
+    return coinServer:GetAttribute("CoinID") == "Candy"
+end
 
 local function matchesFarmTarget(coinServer)
     local target = wig.FarmTarget:Get()
-    if target == "All" then return true end
+
+    if target == "All" then
+        return true
+    end
+
     local candy = isFarmCandy(coinServer)
-    if target == "Coins Only" then return not candy end
-    if target == "Candy Only" then return candy end
+
+    if target == "Coins Only" then
+        return not candy
+    end
+
+    if target == "Candy Only" then
+        return candy
+    end
+
     return true
 end
 
@@ -605,146 +659,232 @@ local function checkInventoryFull()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then return false end
-    
+
     local mainGui = playerGui:FindFirstChild("MainGUI")
     if not mainGui then return false end
-    
+
     local gameGui = mainGui:FindFirstChild("Game")
     if not gameGui then return false end
-    
+
     local coinBags = gameGui:FindFirstChild("CoinBags")
     if not coinBags then return false end
-    
+
     local container = coinBags:FindFirstChild("Container")
     if not container then return false end
-    
+
     local totalCoins = 0
     local isFull = false
 
     for _, currency in ipairs(container:GetChildren()) do
         if currency:IsA("GuiObject") then
             local fullBag = currency:FindFirstChild("FullBagIcon")
+
             if fullBag and fullBag.Visible then
                 isFull = true
             end
-            
+
             local currencyFrame = currency:FindFirstChild("CurrencyFrame")
+
             if currencyFrame then
                 local icon = currencyFrame:FindFirstChild("Icon")
+
                 if icon then
                     local coinsText = icon:FindFirstChild("Coins")
+
                     if coinsText and coinsText:IsA("TextLabel") then
                         local num = tonumber(coinsText.Text:match("%d+"))
-                        if num then totalCoins += num end
+
+                        if num then
+                            totalCoins += num
+                        end
                     end
                 end
             end
         end
     end
 
-    if isFull or totalCoins >= 50 then
-        return true
-    end
-
-    return false
+    return isFull or totalCoins >= 50
 end
 
 local function executeAfterAction()
     local action = wig.FarmAfterAction:Get()
-    if action == "Nothing" then return end
-    
+
+    if action == "Nothing" then
+        return
+    end
+
     if action == "Auto Kill All" then
-        local isMurderer = false
-        local player = game:GetService("Players").LocalPlayer
-        local backpack = player:FindFirstChild("Backpack")
-        local char = player.Character
-        if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then isMurderer = true end
-        if isMurderer then 
-            wig.AutoKillInnocents:Set(true) 
-        end
-        
-    elseif action == "Suicide" then
-        local char = game:GetService("Players").LocalPlayer.Character
-        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.Health = 0 end
-        task.wait(0.5)
-        if wig.AutoFarm:Get() then
-            wig.AutoFarm:Set(false)
-        end
-        
-    elseif action == "Auto Role Action" then
-        local isMurderer = false
-        local player = game:GetService("Players").LocalPlayer
-        local backpack = player:FindFirstChild("Backpack")
-        local char = player.Character
-        
-        if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then 
-            isMurderer = true 
+        if isMurdererGlobal() then
+            wig.AutoKillInnocents:Set(true)
         end
 
-        if isMurderer then
-            print("[AutoFarm] Я убийца. Включаю Auto Kill Innocents.")
+    elseif action == "Suicide" then
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+        if humanoid then
+            humanoid.Health = 0
+        end
+
+    elseif action == "Auto Role Action" then
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+
+        if isMurdererGlobal() then
             wig.AutoKillInnocents:Set(true)
         else
-            print("[AutoFarm] Я мирный/шериф. Убиваю себя для сдачи монет.")
-            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-            if humanoid then humanoid.Health = 0 end
-            task.wait(0.5)
-            if wig.AutoFarm:Get() then
-                wig.AutoFarm:Set(false)
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+                humanoid.Health = 0
             end
         end
+
+    elseif action == "Shoot Murderer" then
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+        local backpack = player:FindFirstChild("Backpack")
+
+        local gun = (character and character:FindFirstChild("Gun"))
+            or (backpack and backpack:FindFirstChild("Gun"))
+
+        if getPlayerRoleGlobal(player) ~= "Sheriff" then
+            ui:Notify({
+                Title = "Auto Farm",
+                Description = "You must be Sheriff to use this action.",
+                Type = "Warning",
+                Duration = 3,
+            })
+            return
+        end
+
+        if not gun then
+            ui:Notify({
+                Title = "Auto Farm",
+                Description = "Gun not found. Waiting for the weapon.",
+                Type = "Warning",
+                Duration = 3,
+            })
+            return
+        end
+
+        ui:Notify({
+            Title = "Auto Farm",
+            Description = "Inventory full. Sheriff and gun detected.",
+            Type = "Info",
+            Duration = 3,
+        })
     end
 end
 
 local function getCoinParts(coinServer)
     local parts = {}
-    if not coinServer then return parts end
-    if coinServer:IsA("BasePart") then table.insert(parts, coinServer); return parts end
-    for _, d in ipairs(coinServer:GetDescendants()) do
-        if d:IsA("BasePart") then table.insert(parts, d) end
+
+    if not coinServer then
+        return parts
     end
+
+    if coinServer:IsA("BasePart") then
+        table.insert(parts, coinServer)
+        return parts
+    end
+
+    for _, descendant in ipairs(coinServer:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            table.insert(parts, descendant)
+        end
+    end
+
     return parts
 end
 
 local function hasTouchedEvent(coinServer)
-    if not coinServer or not coinServer.Parent then return false end
-    if coinServer:IsA("BasePart") and coinServer:FindFirstChildOfClass("TouchTransmitter") then return true end
-    for _, d in ipairs(coinServer:GetDescendants()) do
-        if d:IsA("BasePart") and d:FindFirstChildOfClass("TouchTransmitter") then return true end
+    if not coinServer or not coinServer.Parent then
+        return false
     end
+
+    if coinServer:IsA("BasePart")
+        and coinServer:FindFirstChildOfClass("TouchTransmitter") then
+        return true
+    end
+
+    for _, descendant in ipairs(coinServer:GetDescendants()) do
+        if descendant:IsA("BasePart")
+            and descendant:FindFirstChildOfClass("TouchTransmitter") then
+            return true
+        end
+    end
+
     return false
 end
 
 local function getCoinCenter(coinServer)
-    if not coinServer then return nil end
-    if coinServer:IsA("BasePart") then return coinServer.Position end
-    if coinServer.PrimaryPart then return coinServer.PrimaryPart.Position end
+    if not coinServer then
+        return nil
+    end
+
+    if coinServer:IsA("BasePart") then
+        return coinServer.Position
+    end
+
+    if coinServer.PrimaryPart then
+        return coinServer.PrimaryPart.Position
+    end
+
     local parts = getCoinParts(coinServer)
-    if #parts == 0 then return nil end
+
+    if #parts == 0 then
+        return nil
+    end
+
     local sum = Vector3.zero
-    for _, p in ipairs(parts) do sum = sum + p.Position end
+
+    for _, part in ipairs(parts) do
+        sum += part.Position
+    end
+
     return sum / #parts
 end
 
 local function isOnCooldown(coinServer)
-    local t = COOLDOWN[coinServer]
-    if not t then return false end
-    if tick() - t >= COOLDOWN_TIME then COOLDOWN[coinServer] = nil; return false end
+    local lastTime = COOLDOWN[coinServer]
+
+    if not lastTime then
+        return false
+    end
+
+    if tick() - lastTime >= COOLDOWN_TIME then
+        COOLDOWN[coinServer] = nil
+        return false
+    end
+
     return true
 end
 
 local function findNearestCoin(originPos, radius)
-    local best, bestDist = nil, radius
+    local best = nil
+    local bestDist = radius
+
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "Coin_Server" and matchesFarmTarget(obj) and not isOnCooldown(obj) and hasTouchedEvent(obj) then
+        if obj.Name == "Coin_Server"
+            and matchesFarmTarget(obj)
+            and not isOnCooldown(obj)
+            and hasTouchedEvent(obj) then
+
             local center = getCoinCenter(obj)
+
             if center then
-                local dist = (center - originPos).Magnitude
-                if dist < bestDist then bestDist = dist; best = obj end
+                local distance = (center - originPos).Magnitude
+
+                if distance < bestDist then
+                    bestDist = distance
+                    best = obj
+                end
             end
         end
     end
+
     return best
 end
 
@@ -757,97 +897,152 @@ local function fireTouch(hrp, targetPart)
 end
 
 local function touchCoin(character, coinServer)
-    if not character or not coinServer or not coinServer.Parent then return end
+    if not character or not coinServer or not coinServer.Parent then
+        return
+    end
+
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+
+    if not hrp then
+        return
+    end
+
     for _, part in ipairs(getCoinParts(coinServer)) do
-        if part.Parent then fireTouch(hrp, part) end
+        if part.Parent then
+            fireTouch(hrp, part)
+        end
     end
 end
 
 local function anchorCharacter()
-    local character = game:GetService("Players").LocalPlayer.Character
-    if not character then return end
+    local player = game:GetService("Players").LocalPlayer
+    local character = player.Character
+
+    if not character then
+        return
+    end
+
     local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+
+    if not hrp then
+        return
+    end
+
     hrp.Anchored = true
 end
 
 local function startFarmLoop()
     local player = game:GetService("Players").LocalPlayer
-    if farmThread then 
+
+    if farmThread then
         pcall(task.cancel, farmThread)
-        farmThread = nil 
+        farmThread = nil
     end
+
     table.clear(COOLDOWN)
+    farmFullActionDone = false
 
     farmThread = task.spawn(function()
         local target = nil
+
         while wig.AutoFarm:Get() do
             if checkInventoryFull() then
-                executeAfterAction()
-                if not wig.AutoFarm:Get() then break end
+                if not farmFullActionDone then
+                    farmFullActionDone = true
+                    executeAfterAction()
+                end
+
                 task.wait(1)
                 continue
+            else
+                farmFullActionDone = false
             end
 
             local character = player.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            if not hrp or not humanoid or humanoid.Health <= 0 then target = nil; task.wait(0.5); continue end
-            if not hrp.Anchored then hrp.Anchored = true end
+
+            if not hrp or not humanoid or humanoid.Health <= 0 then
+                target = nil
+                task.wait(0.5)
+                continue
+            end
+
+            if not hrp.Anchored then
+                hrp.Anchored = true
+            end
 
             local radius = wig.FarmRadius:Get()
             local center = target and target.Parent and getCoinCenter(target)
 
-            if not center or (center - hrp.Position).Magnitude > radius or isOnCooldown(target) or not hasTouchedEvent(target) then
+            if not center
+                or (center - hrp.Position).Magnitude > radius
+                or isOnCooldown(target)
+                or not hasTouchedEvent(target) then
+
                 target = findNearestCoin(hrp.Position, radius)
-                if not target then task.wait(0.2); continue end
+
+                if not target then
+                    task.wait(0.2)
+                    continue
+                end
+
                 center = getCoinCenter(target)
-                if not center then target = nil; task.wait(0.05); continue end
+
+                if not center then
+                    target = nil
+                    task.wait(0.05)
+                    continue
+                end
             end
 
             local distance = (center - hrp.Position).Magnitude
+
             if distance > 2 then
                 local speed = wig.FarmSpeed:Get()
-                local dir = (center - hrp.Position).Unit
+                local direction = (center - hrp.Position).Unit
                 local step = math.min(speed * 0.03, distance)
-                hrp.CFrame = CFrame.new(hrp.Position + dir * step)
+
+                hrp.CFrame = CFrame.new(hrp.Position + direction * step)
                 task.wait(0.03)
             else
                 hrp.Anchored = false
                 hrp.CFrame = CFrame.new(center + Vector3.new(0, 2, 0))
                 task.wait(0.05)
-                
+
                 local touchStartTime = tick()
                 local timeout = wig.FarmTimeout:Get() / 10
-                local pickedUp = false
-                
+
                 while wig.AutoFarm:Get() do
                     if not target or not target.Parent then
-                        pickedUp = true; break 
+                        break
                     end
+
                     if not hasTouchedEvent(target) then
-                        pickedUp = true; break 
+                        break
                     end
-                    
+
                     touchCoin(character, target)
                     task.wait(0.1)
-                    
+
                     if tick() - touchStartTime > timeout then
-                        break 
+                        break
                     end
                 end
-                
+
                 COOLDOWN[target] = tick()
                 target = nil
-                if hrp and hrp.Parent then hrp.Anchored = true end
-                
-                if checkInventoryFull() then
+
+                if hrp and hrp.Parent then
+                    hrp.Anchored = true
+                end
+
+                if checkInventoryFull() and not farmFullActionDone then
+                    farmFullActionDone = true
                     executeAfterAction()
-                    if not wig.AutoFarm:Get() then break end
                     task.wait(1)
                 end
+
                 task.wait(0.1)
             end
         end
@@ -857,22 +1052,41 @@ end
 wig.AutoFarm:OnChanged(function(value)
     if value then
         anchorCharacter()
-        if farmAnchorConn then farmAnchorConn:Disconnect() end
+
+        if farmAnchorConn then
+            farmAnchorConn:Disconnect()
+        end
+
         farmAnchorConn = game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
             task.wait(0.3)
-            if wig.AutoFarm:Get() then anchorCharacter() end
+
+            if wig.AutoFarm:Get() then
+                anchorCharacter()
+            end
         end)
+
         startFarmLoop()
     else
-        if farmThread then 
+        if farmThread then
             pcall(task.cancel, farmThread)
-            farmThread = nil 
+            farmThread = nil
         end
-        if farmAnchorConn then farmAnchorConn:Disconnect(); farmAnchorConn = nil end
+
+        if farmAnchorConn then
+            farmAnchorConn:Disconnect()
+            farmAnchorConn = nil
+        end
+
         table.clear(COOLDOWN)
-        local character = game:GetService("Players").LocalPlayer.Character
+        farmFullActionDone = false
+
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
         local hrp = character and character:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.Anchored = false end
+
+        if hrp then
+            hrp.Anchored = false
+        end
     end
 end)
 
@@ -931,22 +1145,12 @@ local PRESETS = {
     Void = { color1 = Color3.fromRGB(40, 0, 60), color2 = Color3.fromRGB(120, 0, 200) },
 }
 
-local function getTrailRole(player)
-    local backpack = player:FindFirstChild("Backpack")
-    if (backpack and backpack:FindFirstChild("Knife")) or (player.Character and player.Character:FindFirstChild("Knife")) then
-        return "Murder"
-    elseif (backpack and backpack:FindFirstChild("Gun")) or (player.Character and player.Character:FindFirstChild("Gun")) then
-        return "Sheriff"
-    end
-    return "Player"
-end
-
 local function shouldApplyTo(player)
     local who = wig.TrailWho:Get()
     if who == "Everyone" then return true end
     if who == "Only Me" then return player == game:GetService("Players").LocalPlayer end
-    if who == "Murderer" then return getTrailRole(player) == "Murder" end
-    if who == "Sheriff" then return getTrailRole(player) == "Sheriff" end
+    if who == "Murderer" then return getPlayerRoleGlobal(player) == "Murder" end
+    if who == "Sheriff" then return getPlayerRoleGlobal(player) == "Sheriff" end
     return false
 end
 
@@ -1052,6 +1256,8 @@ wig.TrailWho:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() en
 wig.TrailLifetime:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() end end)
 wig.TrailThickness:OnChanged(function() if wig.Trails:Get() then refreshAllTrails() end end)
 
+end
+do
 -- ========== WORLD PARTICLES ==========
 wig.WorldParticles = sections.Effects:ToggleCreate({
     Id = "WorldParticles",
@@ -1220,22 +1426,12 @@ local PARTICLE_PRESETS = {
     },
 }
 
-local function getParticleRole(player)
-    local backpack = player:FindFirstChild("Backpack")
-    if (backpack and backpack:FindFirstChild("Knife")) or (player.Character and player.Character:FindFirstChild("Knife")) then
-        return "Murder"
-    elseif (backpack and backpack:FindFirstChild("Gun")) or (player.Character and player.Character:FindFirstChild("Gun")) then
-        return "Sheriff"
-    end
-    return "Player"
-end
-
 local function shouldApplyParticlesTo(player)
     local who = wig.ParticleWho:Get()
     if who == "Everyone" then return true end
     if who == "Only Me" then return player == game:GetService("Players").LocalPlayer end
-    if who == "Murderer" then return getParticleRole(player) == "Murder" end
-    if who == "Sheriff" then return getParticleRole(player) == "Sheriff" end
+    if who == "Murderer" then return getPlayerRoleGlobal(player) == "Murder" end
+    if who == "Sheriff" then return getPlayerRoleGlobal(player) == "Sheriff" end
     return false
 end
 
@@ -1313,6 +1509,8 @@ wig.ParticleSize:OnChanged(function() if wig.WorldParticles:Get() then refreshAl
 wig.ParticleRate:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
 wig.ParticleSpeed:OnChanged(function() if wig.WorldParticles:Get() then refreshAllParticles() end end)
 
+end
+do
 -- ========== JUMP CIRCLES ==========
 wig.JumpCircles = sections.Effects:ToggleCreate({
     Id = "JumpCircles",
@@ -1440,6 +1638,8 @@ wig.JumpCircles:OnChanged(function(value)
     end
 end)
 
+end
+do
 -- ========== FOG ==========
 wig.Fog = sections.Sky:ToggleCreate({
     Id = "Fog",
@@ -1596,6 +1796,8 @@ wig.FogDensity:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == 
 wig.FogHaze:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
 wig.FogBlur:OnChanged(function() if wig.Fog:Get() and wig.FogPreset:Get() == "Custom" then applyFog() end end)
 
+end
+do
 -- ========== CUSTOM SKY ==========
 wig.Sky = sections.Sky:ToggleCreate({
     Id = "Sky",
@@ -1697,6 +1899,8 @@ end)
 
 wig.SkyPreset:OnChanged(function() if wig.Sky:Get() then applySky() end end)
 
+end
+do
 -- ========== ANTI-AFK ==========
 local AntiAFKPlayers = game:GetService("Players")
 local AntiAFKPlayer = AntiAFKPlayers.LocalPlayer
@@ -1793,6 +1997,8 @@ wig.AntiAFK:OnChanged(function(enabled)
     end)
 end)
 
+end
+do
 -- ========== AIMBOT ==========
 wig.Aimbot = sections.Aim:ToggleCreate({
     Id = "Aimbot.Enabled",
@@ -1972,6 +2178,8 @@ runService.RenderStepped:Connect(function()
     end
 end)
 
+end
+do
 -- ========== AUTO GUN ==========
 local gunSection = tabs.Main:SectionCreate({ Name = "Auto Gun", Side = "Right" })
 
@@ -2005,15 +2213,6 @@ local function isLocalPlayerAlive()
     return true
 end
 
-local function isLocalPlayerMurderer()
-    local player = game:GetService("Players").LocalPlayer
-    local backpack = player:FindFirstChild("Backpack")
-    local character = player.Character
-    if backpack and backpack:FindFirstChild("Knife") then return true end
-    if character and character:FindFirstChild("Knife") then return true end
-    return false
-end
-
 local function getActiveMap()
     for _, obj in ipairs(workspace:GetChildren()) do
         if obj:GetAttribute("MapID") then return obj end
@@ -2023,7 +2222,7 @@ end
 
 local function teleportToGun(gunModel)
     if not isLocalPlayerAlive() then return end
-    if isLocalPlayerMurderer() then return end
+    if isMurdererGlobal() then return end
     local player = game:GetService("Players").LocalPlayer
     local character = player.Character
     if not character then return end
@@ -2067,7 +2266,7 @@ wig.AutoGun:OnChanged(function(value)
         if gunCheckThread then task.cancel(gunCheckThread) end
         gunCheckThread = task.spawn(function()
             while wig.AutoGun:Get() do
-                if isLocalPlayerAlive() and not isLocalPlayerMurderer() then
+                if isLocalPlayerAlive() and not isMurdererGlobal() then
                     local map = getActiveMap()
                     if map then
                         local gun = map:FindFirstChild("GunDrop", true)
@@ -2148,6 +2347,8 @@ wig.GunColor:OnChanged(function()
     end
 end)
 
+end
+do
 -- ========== CAMERA & MOUSE ==========
 local uiLockSection = tabs.Combat:SectionCreate({ Name = "Camera & Mouse", Side = "Right" })
 
@@ -2213,6 +2414,8 @@ wig.AutoMouseFix:OnChanged(function(value)
     end
 end)
 
+end
+do
 -- ========== PLAYER SPEED/JUMP/FOV ==========
 local playerSection = tabs.Main:SectionCreate({ Name = "Player", Side = "Left" })
 
@@ -2287,6 +2490,8 @@ game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function(char)
     end
 end)
 
+end
+do
 -- ========== BUNNYHOP ==========
 local movementSection = tabs.Main:SectionCreate({ Name = "Movement", Side = "Right" })
 
@@ -2311,6 +2516,13 @@ wig.BunnyMaxSpeed = bunnySettings:SliderCreate({
     Min = 20, Max = 200, Default = 100,
 })
 
+wig.BunnyNoAnims = bunnySettings:ToggleCreate({
+    Id = "BunnyHop.NoAnims",
+    Name = "Disable Animations",
+    Description = "Removes walk/run animations while moving",
+    Default = false,
+})
+
 local bunnyConnections = {}
 local bunnySpeed = 16
 local lastJumpTime = 0
@@ -2318,6 +2530,14 @@ local lastJumpTime = 0
 local function getLocalHumanoid()
     local char = game:GetService("Players").LocalPlayer.Character
     return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function disableAnimations(humanoid)
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        pcall(function() track:Stop(0) end)
+    end
 end
 
 local function hookBunnyHop(character)
@@ -2350,12 +2570,16 @@ table.insert(bunnyConnections, game:GetService("RunService").Heartbeat:Connect(f
         bunnySpeed = 16
         humanoid.WalkSpeed = 16
     else
-        if tick() - lastJumpTime > 0.8 then
+        if tick() - lastJumpTime > 0.7 and Enum.HumanoidStateType.Running then
             bunnySpeed = 16
             humanoid.WalkSpeed = 16
         else
             if humanoid.WalkSpeed < bunnySpeed then humanoid.WalkSpeed = bunnySpeed end
         end
+    end
+
+    if wig.BunnyNoAnims:Get() and moveDir.Magnitude >= 0.1 then
+        disableAnimations(humanoid)
     end
 end))
 
@@ -2371,11 +2595,21 @@ wig.BunnyHop:OnChanged(function(value)
         for _, conn in ipairs(bunnyConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
         table.clear(bunnyConnections)
         local humanoid = getLocalHumanoid()
-        if humanoid then humanoid.WalkSpeed = 16 end
+        if humanoid then
+            humanoid.WalkSpeed = 16
+            local animator = humanoid:FindFirstChildOfClass("Animator")
+            if animator then
+                local animate = humanoid.Parent and humanoid.Parent:FindFirstChild("Animate")
+                if animate then
+                    pcall(function() animate.Disabled = false end)
+                end
+            end
+        end
         bunnySpeed = 16
     end
 end)
 
+end
 -- ========== PROTECTION ==========
 local combatSettings = tabs.Combat:SectionCreate({ Name = "Protection", Side = "Left" })
 
@@ -2436,6 +2670,7 @@ wig.AntiTouch:OnChanged(function(value)
     else stopAntiTouch() end
 end)
 
+do
 -- ========== AUTO KILL INNOCENTS ==========
 local murdererSection = tabs.Combat:SectionCreate({ Name = "Auto Kill Innocents", Side = "Left" })
 
@@ -2473,13 +2708,6 @@ local function isAlive(player)
     return true
 end
 
-local function isMurderer()
-    local player = game:GetService("Players").LocalPlayer
-    local backpack = player:FindFirstChild("Backpack")
-    local char = player.Character
-    return (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
-end
-
 local function getTargets()
     local player = game:GetService("Players").LocalPlayer
     local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -2487,21 +2715,18 @@ local function getTargets()
     local targets = {}
     for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
         if p ~= player and p.Character and isAlive(p) then
-            local backpack = p:FindFirstChild("Backpack")
-            local char = p.Character
-            local hasKnife = (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
-            if not hasKnife then
-                local mHrp = char:FindFirstChild("HumanoidRootPart")
-                local mHumanoid = char:FindFirstChildOfClass("Humanoid")
+            local role = getPlayerRoleGlobal(p)
+            if role ~= "Murder" then
+                local mHrp = p.Character:FindFirstChild("HumanoidRootPart")
+                local mHumanoid = p.Character:FindFirstChildOfClass("Humanoid")
                 if mHrp and mHumanoid and mHumanoid.Health > 0 then
-                    local hasGun = (backpack and backpack:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun"))
                     local dist = (mHrp.Position - hrp.Position).Magnitude
                     table.insert(targets, {
                         Player = p,
                         Hrp = mHrp,
                         Humanoid = mHumanoid,
                         Distance = dist,
-                        IsSheriff = hasGun
+                        IsSheriff = (role == "Sheriff")
                     })
                 end
             end
@@ -2522,18 +2747,6 @@ local function getBestTarget(targets)
     return best
 end
 
-local function getKnife()
-    local player = game:GetService("Players").LocalPlayer
-    local char = player.Character
-    local backpack = player:FindFirstChild("Backpack")
-    if not char or not backpack then return nil end
-    local knife = char:FindFirstChild("Knife")
-    if knife then return knife end
-    local bk = backpack:FindFirstChild("Knife")
-    if bk then bk.Parent = char; return bk end
-    return nil
-end
-
 local function attackTarget(target)
     local player = game:GetService("Players").LocalPlayer
     local char = player.Character
@@ -2544,7 +2757,7 @@ local function attackTarget(target)
     local dist = wig.KillDistance:Get()
     hrp.CFrame = CFrame.lookAt(target.Hrp.Position - dir * dist + Vector3.new(0, 1, 0), target.Hrp.Position)
     task.wait()
-    local knife = getKnife()
+    local knife = getKnifeGlobal()
     if knife then
         local handle = knife:FindFirstChild("Handle")
         if handle then
@@ -2566,7 +2779,7 @@ local function startAutoKill()
         while wig.AutoKillInnocents:Get() do
             local char = player.Character
             local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-            if char and humanoid and humanoid.Health > 0 and isAlive(player) and isMurderer() then
+            if char and humanoid and humanoid.Health > 0 and isAlive(player) and isMurdererGlobal() then
                 local targets = getTargets()
                 local target = getBestTarget(targets)
                 if target then attackTarget(target) end
@@ -2594,6 +2807,8 @@ wig.AutoKillInnocents:OnChanged(function(value)
     end
 end)
 
+end
+do
 -- ========== NOCLIP ==========
 local noclipSection = tabs.Main:SectionCreate({ Name = "Noclip", Side = "Left" })
 
@@ -2643,3 +2858,1119 @@ game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     if wig.Noclip:Get() then startNoclip() end
 end)
+
+end
+do
+-- ========== FLY ==========
+local flySection = tabs.Main:SectionCreate({ Name = "Fly", Side = "Right" })
+
+wig.Fly = flySection:ToggleCreate({
+    Id = "Fly.Enabled",
+    Name = "Fly",
+    Description = "Fly around with WASD, E/Q for up/down",
+    Default = false,
+})
+
+local flySettings = wig.Fly:CreateSettings({ Name = "Fly Settings" })
+
+wig.FlySpeed = flySettings:SliderCreate({
+    Id = "Fly.Speed",
+    Name = "Fly Speed",
+    Min = 1,
+    Max = 20,
+    Default = 5,
+})
+
+wig.FlyNoclip = flySettings:ToggleCreate({
+    Id = "Fly.Noclip",
+    Name = "Noclip while flying",
+    Description = "Pass through walls",
+    Default = true,
+})
+
+local flyConnection = nil
+local flyNoclipConnection = nil
+local flyBodyVelocity = nil
+local flyBodyGyro = nil
+local flyControls = { F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0 }
+local flyKeyDown = nil
+local flyKeyUp = nil
+
+local function startFly()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    if not char then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return end
+
+    humanoid.PlatformStand = true
+
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.Name = "FlyBV"
+    flyBodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    flyBodyVelocity.Velocity = Vector3.zero
+    flyBodyVelocity.Parent = hrp
+
+    flyBodyGyro = Instance.new("BodyGyro")
+    flyBodyGyro.Name = "FlyBG"
+    flyBodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    flyBodyGyro.P = 9e4
+    flyBodyGyro.CFrame = hrp.CFrame
+    flyBodyGyro.Parent = hrp
+
+    local uis = game:GetService("UserInputService")
+
+    flyKeyDown = uis.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.KeyCode == Enum.KeyCode.W then flyControls.F = 1
+        elseif input.KeyCode == Enum.KeyCode.S then flyControls.B = 1
+        elseif input.KeyCode == Enum.KeyCode.A then flyControls.L = 1
+        elseif input.KeyCode == Enum.KeyCode.D then flyControls.R = 1
+        elseif input.KeyCode == Enum.KeyCode.E then flyControls.Q = 1
+        elseif input.KeyCode == Enum.KeyCode.Q then flyControls.E = 1
+        end
+    end)
+
+    flyKeyUp = uis.InputEnded:Connect(function(input, processed)
+        if processed then return end
+        if input.KeyCode == Enum.KeyCode.W then flyControls.F = 0
+        elseif input.KeyCode == Enum.KeyCode.S then flyControls.B = 0
+        elseif input.KeyCode == Enum.KeyCode.A then flyControls.L = 0
+        elseif input.KeyCode == Enum.KeyCode.D then flyControls.R = 0
+        elseif input.KeyCode == Enum.KeyCode.E then flyControls.Q = 0
+        elseif input.KeyCode == Enum.KeyCode.Q then flyControls.E = 0
+        end
+    end)
+
+    flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+        if not wig.Fly:Get() or not hrp or not hrp.Parent then return end
+        
+        local camera = workspace.CurrentCamera
+        local speed = wig.FlySpeed:Get() * 10
+
+        if flyControls.F + flyControls.B + flyControls.L + flyControls.R ~= 0 then
+            flyBodyVelocity.Velocity = (
+                (camera.CFrame.LookVector * (flyControls.F - flyControls.B)) +
+                (camera.CFrame.RightVector * (flyControls.R - flyControls.L)) +
+                (camera.CFrame.UpVector * (flyControls.Q - flyControls.E))
+            ) * speed
+        else
+            flyBodyVelocity.Velocity = Vector3.zero
+        end
+
+        flyBodyGyro.CFrame = camera.CFrame
+    end)
+
+    flyNoclipConnection = game:GetService("RunService").Stepped:Connect(function()
+        if not wig.FlyNoclip:Get() or not char or not char.Parent then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function stopFly()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    if not char then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+    if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+    if flyNoclipConnection then flyNoclipConnection:Disconnect(); flyNoclipConnection = nil end
+    if flyKeyDown then flyKeyDown:Disconnect(); flyKeyDown = nil end
+    if flyKeyUp then flyKeyUp:Disconnect(); flyKeyUp = nil end
+    if flyBodyVelocity then flyBodyVelocity:Destroy(); flyBodyVelocity = nil end
+    if flyBodyGyro then flyBodyGyro:Destroy(); flyBodyGyro = nil end
+    
+    if humanoid then humanoid.PlatformStand = false end
+    
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = true end
+    end
+    
+    flyControls = { F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0 }
+end
+
+wig.Fly:OnChanged(function(value)
+    if value then
+        startFly()
+    else
+        stopFly()
+    end
+end)
+
+game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if wig.Fly:Get() then
+        startFly()
+    end
+end)
+
+end
+do
+-- ========== KILL AURA ==========
+local auraSection = tabs.Combat:SectionCreate({ Name = "Kill Aura", Side = "Right" })
+
+wig.KillAura = auraSection:ToggleCreate({
+    Id = "KillAura.Enabled",
+    Name = "Kill Aura",
+    Description = "Kills all players in radius (Murderer only)",
+    Default = false,
+})
+
+local auraSettings = wig.KillAura:CreateSettings({ Name = "Aura Settings" })
+
+wig.AuraRadius = auraSettings:SliderCreate({
+    Id = "KillAura.Radius",
+    Name = "Radius (Studs)",
+    Min = 5,
+    Max = 50,
+    Default = 15,
+})
+
+wig.AuraDelay = auraSettings:SliderCreate({
+    Id = "KillAura.Delay",
+    Name = "Attack Delay (x0.1)",
+    Min = 1,
+    Max = 20,
+    Default = 5,
+})
+
+wig.AuraColor = auraSettings:ColorPickerCreate({
+    Id = "KillAura.Color",
+    Name = "Visualizer Color",
+    Default = Color3.fromRGB(255, 0, 0),
+})
+
+local auraThread = nil
+local auraVisual = nil
+local auraVisualConnection = nil
+
+local function updateAuraVisual()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then
+        if auraVisual then auraVisual:Destroy(); auraVisual = nil end
+        return
+    end
+
+    if not auraVisual then
+        auraVisual = Instance.new("Part")
+        auraVisual.Name = "KillAuraVisual"
+        auraVisual.Shape = Enum.PartType.Cylinder
+        auraVisual.Material = Enum.Material.Neon
+        auraVisual.Anchored = true
+        auraVisual.CanCollide = false
+        auraVisual.CanQuery = false
+        auraVisual.CanTouch = false
+        auraVisual.Transparency = 0.8
+        auraVisual.Parent = workspace
+    end
+
+    local radius = wig.AuraRadius:Get()
+    auraVisual.Color = wig.AuraColor:Get()
+    auraVisual.Size = Vector3.new(0.2, radius * 2, radius * 2)
+    auraVisual.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.8, 0)) * CFrame.Angles(0, 0, math.rad(90))
+end
+
+local function startKillAura()
+    local player = game:GetService("Players").LocalPlayer
+    if auraThread then task.cancel(auraThread) end
+    if auraVisualConnection then auraVisualConnection:Disconnect() end
+
+    updateAuraVisual()
+    
+    auraVisualConnection = game:GetService("RunService").RenderStepped:Connect(function()
+        if wig.KillAura:Get() then
+            updateAuraVisual()
+        end
+    end)
+
+    auraThread = task.spawn(function()
+        while wig.KillAura:Get() do
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+
+            if not hrp or not humanoid or humanoid.Health <= 0 or not isMurdererGlobal() then
+                task.wait(0.5)
+                continue
+            end
+
+            local radius = wig.AuraRadius:Get()
+            local delay = wig.AuraDelay:Get() / 10
+            local knife = getKnifeGlobal()
+
+            if knife then
+                for _, target in ipairs(game:GetService("Players"):GetPlayers()) do
+                    if target ~= player and target.Character then
+                        local tHrp = target.Character:FindFirstChild("HumanoidRootPart")
+                        local tHumanoid = target.Character:FindFirstChildOfClass("Humanoid")
+                        
+                        if tHrp and tHumanoid and tHumanoid.Health > 0 then
+                            local dist = (tHrp.Position - hrp.Position).Magnitude
+                            if dist <= radius then
+                                local handle = knife:FindFirstChild("Handle")
+                                if handle then
+                                    pcall(function()
+                                        firetouchinterest(handle, tHrp, 0)
+                                        task.wait(0.01)
+                                        firetouchinterest(handle, tHrp, 1)
+                                    end)
+                                end
+                                pcall(function() knife:Activate() end)
+                                task.wait(delay)
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function stopKillAura()
+    if auraThread then
+        pcall(task.cancel, auraThread)
+        auraThread = nil
+    end
+    if auraVisualConnection then
+        auraVisualConnection:Disconnect()
+        auraVisualConnection = nil
+    end
+    if auraVisual then
+        auraVisual:Destroy()
+        auraVisual = nil
+    end
+end
+
+wig.KillAura:OnChanged(function(value)
+    if value then
+        startKillAura()
+        ui:Notify({ Title = "Kill Aura", Description = "Enabled with visualizer", Type = "Info", Duration = 3 })
+    else
+        stopKillAura()
+    end
+end)
+
+game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if wig.KillAura:Get() then
+        startKillAura()
+    end
+end)
+end
+
+-- ========== AUTO SHOOT ==========
+local shootSec = tabs.Combat:SectionCreate({ Name = "Auto Shoot", Side = "Left" })
+
+wig.AutoShoot = shootSec:ToggleCreate({
+    Id = "AutoShoot.Enabled",
+    Name = "Auto Shoot Murderer",
+    Description = "Teleports and shoots the Murderer (Sheriff only)",
+    Default = false,
+})
+
+local shootSettings = wig.AutoShoot:CreateSettings({ Name = "Settings" })
+
+wig.ShootDelay = shootSettings:SliderCreate({
+    Id = "AutoShoot.Delay",
+    Name = "Shoot Delay (x0.01)",
+    Min = 1,
+    Max = 100,
+    Default = 1,
+})
+
+local shootThread = nil
+
+local function equipGun()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    local backpack = player:FindFirstChild("Backpack")
+    if not char or not backpack then return nil end
+    
+    local gun = char:FindFirstChild("Gun")
+    if gun then return gun end
+    
+    local bg = backpack:FindFirstChild("Gun")
+    if bg then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:EquipTool(bg)
+            return bg
+        end
+    end
+    return nil
+end
+
+local function getMurderer()
+    local player = game:GetService("Players").LocalPlayer
+    for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
+        if p ~= player and p.Character then
+            local role = getPlayerRoleGlobal(p)
+            if role == "Murder" then
+                local h = p.Character:FindFirstChildOfClass("Humanoid")
+                if h and h.Health > 0 then return p end
+            end
+        end
+    end
+    return nil
+end
+
+local function startAutoShoot()
+    local player = game:GetService("Players").LocalPlayer
+    if shootThread then task.cancel(shootThread) end
+    
+    shootThread = task.spawn(function()
+        while wig.AutoShoot:Get() do
+            local char = player.Character
+            local gun = equipGun()
+            
+            if char and gun and getPlayerRoleGlobal(player) == "Sheriff" then
+                local murderer = getMurderer()
+                if murderer and murderer.Character then
+                    local mHrp = murderer.Character:FindFirstChild("HumanoidRootPart")
+                    local mHead = murderer.Character:FindFirstChild("Head")
+                    local myHrp = char:FindFirstChild("HumanoidRootPart")
+                    local myHum = char:FindFirstChildOfClass("Humanoid")
+                    
+                    if mHrp and mHead and myHrp and myHum and myHum.Health > 0 then
+                        myHrp.Anchored = true
+                        
+                        local dir = (mHrp.Position - myHrp.Position).Unit
+                        local tpPos = mHrp.Position - dir * 1 + Vector3.new(0, 1, 0)
+                        
+                        char:PivotTo(CFrame.lookAt(tpPos, mHrp.Position))
+                        workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, mHead.Position)
+                        
+                        local startCFrame = CFrame.lookAt(myHrp.Position, mHead.Position)
+                        local endCFrame = CFrame.new(mHead.Position)
+                        
+                        pcall(function()
+                            gun.Shoot:FireServer(startCFrame, endCFrame)
+                        end)
+                        
+                        local delay = wig.ShootDelay:Get() / 100
+                        if delay > 0 then
+                            task.wait(delay)
+                        else
+                            task.wait()
+                        end
+                        
+                        if myHrp and myHrp.Parent then
+                            myHrp.Anchored = false
+                        end
+                    end
+                end
+            end
+            task.wait()
+        end
+    end)
+end
+
+wig.AutoShoot:OnChanged(function(value)
+    if value then
+        startAutoShoot()
+        ui:Notify({ Title = "Auto Shoot", Description = "Enabled. Scanning for Murderer...", Type = "Info", Duration = 3 })
+    else
+        if shootThread then
+            pcall(task.cancel, shootThread)
+            shootThread = nil
+        end
+        local char = game:GetService("Players").LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.Anchored = false end
+    end
+end)
+
+game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if wig.AutoShoot:Get() then
+        startAutoShoot()
+    end
+end)
+
+-- ========== EMOTES ==========
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local emotesData
+local selectedEmoteName
+
+local function loadEmotes()
+    local success, result = pcall(function()
+        return require(
+            ReplicatedStorage
+                :WaitForChild("Database")
+                :WaitForChild("Sync")
+                :WaitForChild("Emotes")
+        )
+    end)
+
+    if success and type(result) == "table" then
+        return result
+    end
+
+    return nil
+end
+
+emotesData = loadEmotes()
+
+local function getEmoteOptions()
+    local options = {}
+
+    if not emotesData then
+        return options
+    end
+
+    for key, data in pairs(emotesData) do
+        if type(data) == "table"
+            and type(data.Name) == "string"
+            and type(data.AnimationID) == "number" then
+            table.insert(options, data.Name)
+        end
+    end
+
+    table.sort(options)
+    return options
+end
+
+local emoteOptions = getEmoteOptions()
+
+wig.EmoteSelect = sections.Emotes:DropdownCreate({
+    Id = "Troll.Emote",
+    Name = "Choose Emote",
+    Options = emoteOptions,
+    Default = emoteOptions[1],
+})
+
+wig.PlayEmote = sections.Emotes:ButtonCreate({
+    Id = "Troll.PlayEmote",
+    Name = "Play Emote",
+    Description = "Play the selected animation",
+    ButtonText = "Play",
+})
+
+local currentEmoteTrack
+
+local function stopCurrentEmote()
+    if currentEmoteTrack then
+        pcall(function()
+            currentEmoteTrack:Stop(0.15)
+            currentEmoteTrack:Destroy()
+        end)
+
+        currentEmoteTrack = nil
+    end
+end
+
+wig.PlayEmote:OnClick(function()
+    if not emotesData then
+        ui:Notify({
+            Title = "Emotes",
+            Description = "Could not load the game's Emotes table.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        return
+    end
+
+    local selectedName = wig.EmoteSelect:Get()
+    local emoteKey, emoteData
+
+    for key, data in pairs(emotesData) do
+        if type(data) == "table"
+            and data.Name == selectedName
+            and type(data.AnimationID) == "number" then
+            emoteKey = key
+            emoteData = data
+            break
+        end
+    end
+
+    if not emoteData then
+        ui:Notify({
+            Title = "Emotes",
+            Description = "Animation was not found.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        return
+    end
+
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    if not humanoid then
+        return
+    end
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+
+    if not animator then
+        animator = Instance.new("Animator")
+        animator.Parent = humanoid
+    end
+
+    stopCurrentEmote()
+
+    local animation = Instance.new("Animation")
+    animation.AnimationId = "rbxassetid://" .. emoteData.AnimationID
+
+    local success, track = pcall(function()
+        return animator:LoadAnimation(animation)
+    end)
+
+    animation:Destroy()
+
+    if not success or not track then
+        ui:Notify({
+            Title = "Emotes",
+            Description = "Unable to load this animation.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        return
+    end
+
+    currentEmoteTrack = track
+    track.Looped = emoteData.Loop == true
+
+    local played = pcall(function()
+        track:Play(0.15)
+    end)
+
+    if played then
+        ui:Notify({
+            Title = "Emotes",
+            Description = "Playing: " .. emoteData.Name,
+            Type = "Info",
+            Duration = 2,
+        })
+    end
+end)
+
+wig.StopEmote = sections.Emotes:ButtonCreate({
+    Id = "Troll.StopEmote",
+    Name = "Stop Emote",
+    Description = "Stop the selected animation",
+    ButtonText = "Stop",
+})
+
+wig.StopEmote:OnClick(function()
+    stopCurrentEmote()
+end)
+
+-- ========== BANG EMOTE ==========
+local RunService = game:GetService("RunService")
+
+local bangState = {
+    Track = nil,
+    Anim = nil,
+    LoopConn = nil,
+    DiedConn = nil,
+}
+
+local function getCharacterRoot(character)
+    if not character then return nil end
+    return character:FindFirstChild("HumanoidRootPart")
+        or character:FindFirstChild("Torso")
+        or character:FindFirstChild("UpperTorso")
+end
+
+local function isR15(character)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false end
+    return humanoid.RigType == Enum.HumanoidRigType.R15
+end
+
+local function stopBang()
+    if bangState.LoopConn then
+        pcall(function() bangState.LoopConn:Disconnect() end)
+        bangState.LoopConn = nil
+    end
+    if bangState.DiedConn then
+        pcall(function() bangState.DiedConn:Disconnect() end)
+        bangState.DiedConn = nil
+    end
+    if bangState.Track then
+        pcall(function()
+            bangState.Track:Stop(0.15)
+            bangState.Track:Destroy()
+        end)
+        bangState.Track = nil
+    end
+    if bangState.Anim then
+        pcall(function() bangState.Anim:Destroy() end)
+        bangState.Anim = nil
+    end
+end
+
+local function playBang(targetPlayer, speed)
+    local character = LocalPlayer.Character
+    if not character then
+        ui:Notify({
+            Title = "Bang",
+            Description = "Character is not loaded.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    stopBang()
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then
+        animator = Instance.new("Animator")
+        animator.Parent = humanoid
+    end
+
+    local animId = isR15(character) and 5918726674 or 148840371
+
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. animId
+    bangState.Anim = anim
+
+    local success, track = pcall(function()
+        return animator:LoadAnimation(anim)
+    end)
+
+    if not success or not track then
+        ui:Notify({
+            Title = "Bang",
+            Description = "Failed to load the animation.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        stopBang()
+        return
+    end
+
+    bangState.Track = track
+
+    local ok = pcall(function()
+        track:Play(0.1, 1, 1)
+        track:AdjustSpeed(speed or 3)
+    end)
+
+    if not ok then
+        stopBang()
+        return
+    end
+
+    bangState.DiedConn = humanoid.Died:Connect(function()
+        stopBang()
+    end)
+
+    if targetPlayer and targetPlayer.Character then
+        local targetRoot = getCharacterRoot(targetPlayer.Character)
+        if targetRoot then
+            local offset = CFrame.new(0, 0, 1.1)
+
+            bangState.LoopConn = RunService.Stepped:Connect(function()
+                pcall(function()
+                    local myRoot = getCharacterRoot(character)
+                    local tRoot = getCharacterRoot(targetPlayer.Character)
+                    if myRoot and tRoot and bangState.Track and bangState.Track.IsPlaying then
+                        myRoot.CFrame = tRoot.CFrame * offset
+                    end
+                end)
+            end)
+        end
+    end
+
+    ui:Notify({
+        Title = "Bang",
+        Description = targetPlayer and ("Active with: " .. targetPlayer.Name) or "Animation started",
+        Type = "Info",
+        Duration = 2,
+    })
+end
+
+local function getPlayerOptions()
+    local opts = { "None" }
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(opts, plr.Name)
+        end
+    end
+    return opts
+end
+
+sections.BangEmote = tabs.Troll:SectionCreate({
+    Name = "Bang",
+    Side = "Left",
+})
+
+wig.BangTarget = sections.BangEmote:DropdownCreate({
+    Id = "Troll.BangTarget",
+    Name = "Bang Target",
+    Options = getPlayerOptions(),
+    Default = "None",
+})
+
+wig.BangSpeed = sections.BangEmote:SliderCreate({
+    Id = "Troll.BangSpeed",
+    Name = "Bang Speed",
+    Min = 0.5,
+    Max = 6,
+    Default = 3,
+    Step = 0.5,
+})
+
+wig.StartBang = sections.BangEmote:ButtonCreate({
+    Id = "Troll.StartBang",
+    Name = "Start Bang",
+    Description = "Play the bang animation (binds to target if selected)",
+    ButtonText = "Start",
+})
+
+wig.StopBang = sections.BangEmote:ButtonCreate({
+    Id = "Troll.StopBang",
+    Name = "Stop Bang",
+    Description = "Stop the bang animation",
+    ButtonText = "Stop",
+})
+
+wig.StartBang:OnClick(function()
+    local selected = wig.BangTarget:Get()
+    local target = nil
+
+    if selected and selected ~= "None" then
+        target = Players:FindFirstChild(selected)
+        if not target then
+            ui:Notify({
+                Title = "Bang",
+                Description = "Player not found.",
+                Type = "Warning",
+                Duration = 3,
+            })
+            return
+        end
+    end
+
+    local speed = wig.BangSpeed:Get() or 3
+    playBang(target, speed)
+end)
+
+wig.StopBang:OnClick(function()
+    stopBang()
+end)
+
+-- ========== JERK EMOTE ==========
+local jerkState = {
+    Track = nil,
+    Anim = nil,
+    Thread = nil,
+    DiedConn = nil,
+    Active = false,
+}
+
+local function isR15Character(character)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false end
+    return humanoid.RigType == Enum.HumanoidRigType.R15
+end
+
+local function stopJerk()
+    jerkState.Active = false
+    if jerkState.Thread then
+        pcall(task.cancel, jerkState.Thread)
+        jerkState.Thread = nil
+    end
+    if jerkState.DiedConn then
+        pcall(function() jerkState.DiedConn:Disconnect() end)
+        jerkState.DiedConn = nil
+    end
+    if jerkState.Track then
+        pcall(function()
+            jerkState.Track:Stop()
+            jerkState.Track:Destroy()
+        end)
+        jerkState.Track = nil
+    end
+    if jerkState.Anim then
+        pcall(function() jerkState.Anim:Destroy() end)
+        jerkState.Anim = nil
+    end
+end
+
+local function startJerk()
+    local character = LocalPlayer.Character
+    if not character then
+        ui:Notify({
+            Title = "Jerk",
+            Description = "Character is not loaded.",
+            Type = "Warning",
+            Duration = 3,
+        })
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    stopJerk()
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then
+        animator = Instance.new("Animator")
+        animator.Parent = humanoid
+    end
+
+    jerkState.Active = true
+
+    jerkState.DiedConn = humanoid.Died:Connect(function()
+        stopJerk()
+    end)
+
+    jerkState.Thread = task.spawn(function()
+        while jerkState.Active do
+            local r15 = isR15Character(character)
+
+            if not jerkState.Track then
+                local anim = Instance.new("Animation")
+                anim.AnimationId = not r15 and "rbxassetid://72042024" or "rbxassetid://698251653"
+                jerkState.Anim = anim
+                local ok, loaded = pcall(function()
+                    return animator:LoadAnimation(anim)
+                end)
+                if ok and loaded then
+                    jerkState.Track = loaded
+                else
+                    break
+                end
+            end
+
+            pcall(function()
+                jerkState.Track:Play()
+                jerkState.Track:AdjustSpeed(r15 and 0.7 or 0.65)
+                jerkState.Track.TimePosition = 0.6
+            end)
+
+            task.wait(0.1)
+            while jerkState.Active and jerkState.Track and jerkState.Track.TimePosition < (not r15 and 0.65 or 0.7) do
+                task.wait(0.1)
+            end
+
+            if jerkState.Track then
+                pcall(function() jerkState.Track:Stop() end)
+                pcall(function() jerkState.Track:Destroy() end)
+                jerkState.Track = nil
+            end
+            if jerkState.Anim then
+                pcall(function() jerkState.Anim:Destroy() end)
+                jerkState.Anim = nil
+            end
+
+            task.wait()
+        end
+    end)
+
+    ui:Notify({
+        Title = "Jerk",
+        Description = "Animation started",
+        Type = "Info",
+        Duration = 2,
+    })
+end
+
+sections.JerkEmote = tabs.Troll:SectionCreate({
+    Name = "Jerk",
+    Side = "Right",
+})
+
+wig.StartJerk = sections.JerkEmote:ButtonCreate({
+    Id = "Troll.StartJerk",
+    Name = "Start Jerk",
+    Description = "Play the jerk animation",
+    ButtonText = "Start",
+})
+
+wig.StopJerk = sections.JerkEmote:ButtonCreate({
+    Id = "Troll.StopJerk",
+    Name = "Stop Jerk",
+    Description = "Stop the jerk animation",
+    ButtonText = "Stop",
+})
+
+wig.StartJerk:OnClick(function()
+    startJerk()
+end)
+
+wig.StopJerk:OnClick(function()
+    stopJerk()
+end)
+
+-- ========== DEPTH OF FIELD ==========
+local dofSec = tabs.Visuals:SectionCreate({ Name = "Depth of Field", Side = "Left" })
+
+wig.DOF = dofSec:ToggleCreate({
+    Id = "DOF.Enabled",
+    Name = "Depth of Field",
+    Description = "Blurs distant objects beautifully",
+    Default = false,
+})
+
+local dofSettings = wig.DOF:CreateSettings({ Name = "DOF Settings" })
+
+wig.DOFFocus = dofSettings:SliderCreate({
+    Id = "DOF.Focus",
+    Name = "Focus Distance",
+    Min = 5,
+    Max = 200,
+    Default = 20,
+})
+
+wig.DOFIntensity = dofSettings:SliderCreate({
+    Id = "DOF.Intensity",
+    Name = "Blur Intensity (x0.01)",
+    Min = 1,
+    Max = 100,
+    Default = 25,
+})
+
+wig.DOFInFocus = dofSettings:SliderCreate({
+    Id = "DOF.InFocus",
+    Name = "In-Focus Radius",
+    Min = 5,
+    Max = 100,
+    Default = 5,
+})
+
+local dofEffect = nil
+
+local function applyDOF()
+    local lighting = game:GetService("Lighting")
+
+    if not wig.DOF:Get() then
+        if dofEffect then
+            dofEffect:Destroy()
+            dofEffect = nil
+        end
+        return
+    end
+
+    if not dofEffect then
+        dofEffect = Instance.new("DepthOfFieldEffect")
+        dofEffect.Name = "CustomDOF"
+        dofEffect.Parent = lighting
+    end
+
+    dofEffect.FocusDistance = wig.DOFFocus:Get()
+    dofEffect.FarIntensity = wig.DOFIntensity:Get() / 100
+    dofEffect.InFocusRadius = wig.DOFInFocus:Get()
+    dofEffect.NearIntensity = 0
+end
+
+wig.DOF:OnChanged(function() applyDOF() end)
+wig.DOFFocus:OnChanged(function() if wig.DOF:Get() then applyDOF() end end)
+wig.DOFIntensity:OnChanged(function() if wig.DOF:Get() then applyDOF() end end)
+wig.DOFInFocus:OnChanged(function() if wig.DOF:Get() then applyDOF() end end)
+
+-- ========== FULL BRIGHT ==========
+local fbSec = tabs.Visuals:SectionCreate({ Name = "Full Bright", Side = "Right" })
+
+wig.FullBright = fbSec:ToggleCreate({
+    Id = "FullBright.Enabled",
+    Name = "Full Bright",
+    Description = "Makes everything fully lit and removes fog",
+    Default = false,
+})
+
+local fbSettings = wig.FullBright:CreateSettings({ Name = "Full Bright Settings" })
+
+wig.FBBrightness = fbSettings:SliderCreate({
+    Id = "FullBright.Brightness",
+    Name = "Brightness",
+    Min = 0,
+    Max = 5,
+    Default = 3,
+})
+
+wig.FBAmbient = fbSettings:SliderCreate({
+    Id = "FullBright.Ambient",
+    Name = "Ambient (x0.1)",
+    Min = 1,
+    Max = 10,
+    Default = 10,
+})
+
+wig.FBOutdoorAmbient = fbSettings:SliderCreate({
+    Id = "FullBright.OutdoorAmbient",
+    Name = "Outdoor Ambient (x0.1)",
+    Min = 1,
+    Max = 10,
+    Default = 10,
+})
+
+wig.FBRemoveFog = fbSettings:ToggleCreate({
+    Id = "FullBright.RemoveFog",
+    Name = "Remove Fog",
+    Description = "Disables fog while Full Bright is active",
+    Default = true,
+})
+
+local fbEffect = nil
+
+local function applyFullBright()
+    local lighting = game:GetService("Lighting")
+
+    if not wig.FullBright:Get() then
+        if fbEffect then
+            if fbEffect.Brightness then
+                lighting.Brightness = fbEffect.Brightness
+            end
+            if fbEffect.Ambient then
+                lighting.Ambient = fbEffect.Ambient
+            end
+            if fbEffect.OutdoorAmbient then
+                lighting.OutdoorAmbient = fbEffect.OutdoorAmbient
+            end
+            if fbEffect.FogEnd then
+                lighting.FogEnd = fbEffect.FogEnd
+            end
+            fbEffect = nil
+        end
+        return
+    end
+
+    if not fbEffect then
+        fbEffect = {
+            Brightness = lighting.Brightness,
+            Ambient = lighting.Ambient,
+            OutdoorAmbient = lighting.OutdoorAmbient,
+            FogEnd = lighting.FogEnd,
+        }
+    end
+
+    lighting.Brightness = wig.FBBrightness:Get()
+    lighting.Ambient = Color3.fromRGB(255, 255, 255) * (wig.FBAmbient:Get() / 10)
+    lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255) * (wig.FBOutdoorAmbient:Get() / 10)
+
+    if wig.FBRemoveFog:Get() then
+        lighting.FogEnd = 1000000
+    elseif fbEffect.FogEnd then
+        lighting.FogEnd = fbEffect.FogEnd
+    end
+end
+
+wig.FullBright:OnChanged(function() applyFullBright() end)
+wig.FBBrightness:OnChanged(function() if wig.FullBright:Get() then applyFullBright() end end)
+wig.FBAmbient:OnChanged(function() if wig.FullBright:Get() then applyFullBright() end end)
+wig.FBOutdoorAmbient:OnChanged(function() if wig.FullBright:Get() then applyFullBright() end end)
+wig.FBRemoveFog:OnChanged(function() if wig.FullBright:Get() then applyFullBright() end end)
