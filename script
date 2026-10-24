@@ -563,7 +563,7 @@ wig.FarmTarget = farmSettings:DropdownCreate({
 wig.FarmSpeed = farmSettings:SliderCreate({
     Id = "AutoFarm.Speed",
     Name = "Fly Speed",
-    Min = 5, Max = 100, Default = 30,
+    Min = 5, Max = 80, Default = 30,
 })
 
 wig.FarmRadius = farmSettings:SliderCreate({
@@ -581,8 +581,8 @@ wig.FarmTimeout = farmSettings:SliderCreate({
 wig.FarmAfterAction = farmSettings:DropdownCreate({
     Id = "AutoFarm.AfterAction",
     Name = "After Full Inventory",
-    Options = { "Nothing", "Auto Kill All", "Suicide" },
-    Default = "Nothing",
+    Options = { "Nothing", "Auto Kill All", "Suicide", "Auto Role Action" },
+    Default = "Auto Role Action",
 })
 
 local COOLDOWN_TIME = 5
@@ -605,25 +605,45 @@ local function checkInventoryFull()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then return false end
+    
     local mainGui = playerGui:FindFirstChild("MainGUI")
     if not mainGui then return false end
+    
     local gameGui = mainGui:FindFirstChild("Game")
     if not gameGui then return false end
+    
+    local coinBags = gameGui:FindFirstChild("CoinBags")
+    if not coinBags then return false end
+    
+    local container = coinBags:FindFirstChild("Container")
+    if not container then return false end
+    
+    local totalCoins = 0
+    local isFull = false
 
-    local coins = gameGui:FindFirstChild("Coins")
-    if coins then
-        local fullBag = coins:FindFirstChild("FullBagIcon", true)
-        if fullBag and fullBag:IsA("GuiObject") and fullBag.Visible then
-            return true
+    for _, currency in ipairs(container:GetChildren()) do
+        if currency:IsA("GuiObject") then
+            local fullBag = currency:FindFirstChild("FullBagIcon")
+            if fullBag and fullBag.Visible then
+                isFull = true
+            end
+            
+            local currencyFrame = currency:FindFirstChild("CurrencyFrame")
+            if currencyFrame then
+                local icon = currencyFrame:FindFirstChild("Icon")
+                if icon then
+                    local coinsText = icon:FindFirstChild("Coins")
+                    if coinsText and coinsText:IsA("TextLabel") then
+                        local num = tonumber(coinsText.Text:match("%d+"))
+                        if num then totalCoins += num end
+                    end
+                end
+            end
         end
     end
 
-    local candy = gameGui:FindFirstChild("Candy")
-    if candy then
-        local fullBag = candy:FindFirstChild("FullBagIcon", true)
-        if fullBag and fullBag:IsA("GuiObject") and fullBag.Visible then
-            return true
-        end
+    if isFull or totalCoins >= 50 then
+        return true
     end
 
     return false
@@ -632,19 +652,48 @@ end
 local function executeAfterAction()
     local action = wig.FarmAfterAction:Get()
     if action == "Nothing" then return end
+    
     if action == "Auto Kill All" then
         local isMurderer = false
         local player = game:GetService("Players").LocalPlayer
         local backpack = player:FindFirstChild("Backpack")
         local char = player.Character
         if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then isMurderer = true end
-        if isMurderer then wig.AutoKillInnocents:Set(true) end
+        if isMurderer then 
+            wig.AutoKillInnocents:Set(true) 
+        end
+        
     elseif action == "Suicide" then
         local char = game:GetService("Players").LocalPlayer.Character
         local humanoid = char and char:FindFirstChildOfClass("Humanoid")
         if humanoid then humanoid.Health = 0 end
         task.wait(0.5)
-        wig.AutoFarm:Set(false)
+        if wig.AutoFarm:Get() then
+            wig.AutoFarm:Set(false)
+        end
+        
+    elseif action == "Auto Role Action" then
+        local isMurderer = false
+        local player = game:GetService("Players").LocalPlayer
+        local backpack = player:FindFirstChild("Backpack")
+        local char = player.Character
+        
+        if (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then 
+            isMurderer = true 
+        end
+
+        if isMurderer then
+            print("[AutoFarm] Я убийца. Включаю Auto Kill Innocents.")
+            wig.AutoKillInnocents:Set(true)
+        else
+            print("[AutoFarm] Я мирный/шериф. Убиваю себя для сдачи монет.")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid.Health = 0 end
+            task.wait(0.5)
+            if wig.AutoFarm:Get() then
+                wig.AutoFarm:Set(false)
+            end
+        end
     end
 end
 
@@ -726,7 +775,10 @@ end
 
 local function startFarmLoop()
     local player = game:GetService("Players").LocalPlayer
-    if farmThread then task.cancel(farmThread); farmThread = nil end
+    if farmThread then 
+        pcall(task.cancel, farmThread)
+        farmThread = nil 
+    end
     table.clear(COOLDOWN)
 
     farmThread = task.spawn(function()
@@ -766,19 +818,36 @@ local function startFarmLoop()
                 hrp.Anchored = false
                 hrp.CFrame = CFrame.new(center + Vector3.new(0, 2, 0))
                 task.wait(0.05)
+                
                 local touchStartTime = tick()
                 local timeout = wig.FarmTimeout:Get() / 10
                 local pickedUp = false
+                
                 while wig.AutoFarm:Get() do
-                    if not target or not target.Parent then pickedUp = true; break end
-                    if not hasTouchedEvent(target) then pickedUp = true; break end
+                    if not target or not target.Parent then
+                        pickedUp = true; break 
+                    end
+                    if not hasTouchedEvent(target) then
+                        pickedUp = true; break 
+                    end
+                    
                     touchCoin(character, target)
                     task.wait(0.1)
-                    if tick() - touchStartTime > timeout then break end
+                    
+                    if tick() - touchStartTime > timeout then
+                        break 
+                    end
                 end
+                
                 COOLDOWN[target] = tick()
                 target = nil
                 if hrp and hrp.Parent then hrp.Anchored = true end
+                
+                if checkInventoryFull() then
+                    executeAfterAction()
+                    if not wig.AutoFarm:Get() then break end
+                    task.wait(1)
+                end
                 task.wait(0.1)
             end
         end
@@ -795,7 +864,10 @@ wig.AutoFarm:OnChanged(function(value)
         end)
         startFarmLoop()
     else
-        if farmThread then task.cancel(farmThread); farmThread = nil end
+        if farmThread then 
+            pcall(task.cancel, farmThread)
+            farmThread = nil 
+        end
         if farmAnchorConn then farmAnchorConn:Disconnect(); farmAnchorConn = nil end
         table.clear(COOLDOWN)
         local character = game:GetService("Players").LocalPlayer.Character
